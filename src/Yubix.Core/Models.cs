@@ -20,7 +20,9 @@ public static class Surfaces
 
     public static readonly string[] All = { Sudo, Polkit, LockScreen, Login };
 
-    /// <summary>PAM service file name backing each surface.</summary>
+    /// <summary>PAM service file name backing each surface. The login surface
+    /// defaults to plasmalogin; use the two-argument overload with a resolved
+    /// login service when the active display manager is known.</summary>
     public static string ServiceFor(string surfaceId) => surfaceId switch
     {
         Sudo => "sudo",
@@ -29,6 +31,35 @@ public static class Surfaces
         Login => "plasmalogin",
         _ => throw new ArgumentException($"unknown surface '{surfaceId}'"),
     };
+
+    public static string ServiceFor(string surfaceId, string loginService) =>
+        surfaceId == Login ? loginService : ServiceFor(surfaceId);
+
+    /// <summary>Login-screen PAM services Yubix knows how to manage, in
+    /// fallback-probe order. RestoreDefaults cleans all of them, so a display
+    /// manager switch can't strand a stale override.</summary>
+    public static readonly string[] KnownLoginServices = { "plasmalogin", "sddm" };
+
+    /// <summary>Maps the display-manager systemd unit to its PAM service;
+    /// null when Yubix doesn't support that display manager yet.</summary>
+    public static string? LoginServiceForDm(string? dmUnit) => dmUnit switch
+    {
+        "plasmalogin.service" => "plasmalogin",
+        "sddm.service" => "sddm",
+        _ => null,
+    };
+
+    /// <summary>Resolves the login surface's PAM service: the active display
+    /// manager decides; without a usable DM link (fake roots, containers),
+    /// probe for a known service that exists on disk.</summary>
+    public static string ResolveLoginService(YubixPaths paths, string? dmUnit)
+    {
+        if (LoginServiceForDm(dmUnit) is { } fromDm) return fromDm;
+        foreach (var svc in KnownLoginServices)
+            if (File.Exists(paths.EtcService(svc)) || File.Exists(paths.VendorService(svc)))
+                return svc;
+        return KnownLoginServices[0];
+    }
 
     /// <summary>Login-screen 2FA is gated until KDE bug 513560 is verified fixed.</summary>
     public static bool ModeAllowed(string surfaceId, SurfaceMode mode) =>

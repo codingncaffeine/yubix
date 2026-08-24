@@ -239,6 +239,32 @@ public class MappingFileTests
         Assert.Equal(0, MappingFile.CredentialCount("bob:X,Y,es256,+presence\n", "alice"));
 
     [Fact]
+    public void RemoveCredentialByIndex()
+    {
+        var content = "alice:A1,K,es256,+presence:A2,K,es256,+presence\nbob:B1,K,es256,+presence\n";
+        // Middle of the file, first credential of two.
+        Assert.Equal("alice:A2,K,es256,+presence\nbob:B1,K,es256,+presence\n",
+            MappingFile.RemoveCredential(content, "alice", 0));
+        // Second credential of two.
+        Assert.Equal("alice:A1,K,es256,+presence\nbob:B1,K,es256,+presence\n",
+            MappingFile.RemoveCredential(content, "alice", 1));
+        // Last credential removes the whole line; other users untouched.
+        Assert.Equal("alice:A1,K,es256,+presence:A2,K,es256,+presence\n",
+            MappingFile.RemoveCredential(content, "bob", 0));
+        // Last credential of the last user empties the file.
+        Assert.Equal("", MappingFile.RemoveCredential("bob:B1,K,es256,+presence\n", "bob", 0));
+    }
+
+    [Fact]
+    public void RemoveCredentialRejectsUnknownUserAndIndex()
+    {
+        var content = "alice:A1,K,es256,+presence\n";
+        Assert.Throws<ArgumentException>(() => MappingFile.RemoveCredential(content, "bob", 0));
+        Assert.Throws<ArgumentException>(() => MappingFile.RemoveCredential(content, "alice", 1));
+        Assert.Throws<ArgumentException>(() => MappingFile.RemoveCredential(content, "alice", -1));
+    }
+
+    [Fact]
     public void ExtractCredentialErrorAndEdgeBranches()
     {
         // No output at all, and output that is not a credential: both throw.

@@ -34,6 +34,9 @@ public sealed class YubixPaths
     public string SnapshotFile => P("/var/lib/yubix/pamcheck.snapshot");
     /// <summary>Findings the pacman hook left for the GUI to surface.</summary>
     public string AttentionFile => P("/var/lib/yubix/attention");
+    /// <summary>Symlink naming the active display manager — decides which
+    /// PAM service backs the login surface (plasmalogin vs sddm).</summary>
+    public string DisplayManagerLink => P("/etc/systemd/system/display-manager.service");
 
     public string EtcService(string service) => Path.Combine(EtcPamD, service);
     public string VendorService(string service) => Path.Combine(VendorPamD, service);

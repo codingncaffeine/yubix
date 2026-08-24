@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Yubix.Core;
@@ -10,7 +12,7 @@ namespace Yubix.App;
 
 public partial class MainWindow : Window
 {
-    private enum OverlayState { None, EnrollForm, Touch, Countdown, Message, ConfirmRestore, ConfirmTwoFactor, Busy }
+    private enum OverlayState { None, EnrollForm, Touch, Countdown, Message, ConfirmRestore, ConfirmTwoFactor, ConfirmRemoveKey, Busy }
 
     private readonly HelperClient _helper = new();
     private OverlayState _overlayState = OverlayState.None;
@@ -21,6 +23,7 @@ public partial class MainWindow : Window
     private bool _simulatedDevice;
     private int _enrolledKeyCount;
     private Dictionary<string, string>? _pendingModes;
+    private (string User, uint Index, string Nickname)? _pendingRemoveKey;
 
     private static readonly IBrush BadgeOnBrush = new SolidColorBrush(Color.Parse("#153A41"));
     private static readonly IBrush BadgeOnText = new SolidColorBrush(Color.Parse("#5BD5E8"));
@@ -70,17 +73,36 @@ public partial class MainWindow : Window
         if (keys is { Count: > 0 })
         {
             KeysEmptyText.IsVisible = false;
+            // The Nth listed key for a user is the Nth credential on their
+            // mapping line — that per-user index is what RemoveKey takes.
+            var perUserIndex = new Dictionary<string, uint>();
             foreach (var key in keys)
             {
+                var user = key?["user"]?.GetValue<string>() ?? "";
+                var nickname = key?["nickname"]?.GetValue<string>() ?? "key";
+                var index = perUserIndex.GetValueOrDefault(user);
+                perUserIndex[user] = index + 1;
+
                 var added = key?["addedUtc"]?.GetValue<DateTime>();
-                KeysPanel.Children.Add(new TextBlock
+                var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+                row.Children.Add(new TextBlock
                 {
                     Classes = { "muted" },
-                    Text = $"🔑  {key?["nickname"]?.GetValue<string>() ?? "key"} — " +
-                           $"user {key?["user"]?.GetValue<string>()}, " +
-                           $"{key?["credentialCount"]?.GetValue<int>() ?? 1} credential(s)" +
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Text = $"🔑  {nickname} — user {user}" +
                            (added is null ? "" : $", added {added:yyyy-MM-dd}"),
                 });
+                var removeBtn = new Button
+                {
+                    Classes = { "subtle" },
+                    Content = "Remove…",
+                    FontSize = 12,
+                    Padding = new Thickness(10, 4),
+                };
+                removeBtn.Click += (_, _) => OnRemoveKey(user, index, nickname);
+                Grid.SetColumn(removeBtn, 1);
+                row.Children.Add(removeBtn);
+                KeysPanel.Children.Add(row);
             }
         }
         else
@@ -123,10 +145,13 @@ public partial class MainWindow : Window
         var health = data["health"];
         if (health?["polkitSandboxOk"]?.GetValue<bool>() == false)
             Log("⚠ polkit's auth helper lost the pam-u2f drop-in — admin-prompt key auth will fail (reinstall pam-u2f)");
-        if (health?["displayManagerIsPlasmalogin"]?.GetValue<bool>() == false)
-            Log($"⚠ the login screen is no longer plasmalogin ({health?["displayManagerService"]?.GetValue<string>()}) — the login surface may not apply to it");
+        if (health?["loginServiceSupported"]?.GetValue<bool>() == false)
+            Log($"⚠ unsupported login screen ({health?["displayManagerService"]?.GetValue<string>()}) — Yubix manages plasmalogin and sddm; the login surface won't apply to this one");
         if (health?["lockscreenNativeU2f"]?.GetValue<bool>() == true)
             Log("ℹ this Plasma has native lock-screen key support (kde-u2f) — a future Yubix version will migrate to it");
+        if (data["staleLoginServices"] is JsonArray stale)
+            foreach (var s in stale)
+                Log($"⚠ the display manager changed: '{s?.GetValue<string>()}' still carries a Yubix line that is no longer used — Restore Defaults cleans it, then re-apply");
 
         await RefreshDevicesAsync();
     }
@@ -191,6 +216,19 @@ public partial class MainWindow : Window
     {
         if (_updatingUi) return;
         FooterHint.Text = "Unapplied changes — click “Apply changes” to run the safety-checked apply.";
+    }
+
+    private void OnRemoveKey(string user, uint index, string nickname)
+    {
+        if (_busy) return;
+        _pendingRemoveKey = (user, index, nickname);
+        ShowOverlay(OverlayState.ConfirmRemoveKey,
+            $"Remove “{nickname}”?",
+            $"The key will immediately stop working for user “{user}” everywhere. " +
+            "Password login is never affected, and any other enrolled keys keep working. " +
+            "If this is the last key, all surfaces simply fall back to password for this user. " +
+            "(Undo from a terminal: sudo yubix-restore --last.)",
+            primary: "Remove key", secondary: "Cancel");
     }
 
     private void OnEnroll(object? sender, RoutedEventArgs e)
@@ -316,6 +354,27 @@ public partial class MainWindow : Window
                 _pendingModes = null;
                 HideOverlay();
                 if (pendingModes is not null) await DoApplyAsync(pendingModes);
+                break;
+
+            case OverlayState.ConfirmRemoveKey:
+                var pendingRemove = _pendingRemoveKey;
+                _pendingRemoveKey = null;
+                if (pendingRemove is null) { HideOverlay(); break; }
+                ShowOverlay(OverlayState.Busy, "Removing key…",
+                    "Rewriting the key mapping (a backup is kept).", primary: null, secondary: null);
+                var remove = await _helper.CallAsync(m =>
+                    m.RemoveKeyAsync(pendingRemove.Value.User, pendingRemove.Value.Index));
+                HideOverlay();
+                if (remove.Ok)
+                {
+                    var note = remove.Data?["note"]?.GetValue<string>();
+                    Log($"removed “{pendingRemove.Value.Nickname}”" + (note is null ? "" : " — " + note));
+                }
+                else
+                {
+                    Log("remove failed: " + remove.Error);
+                }
+                await RefreshAllAsync();
                 break;
 
             case OverlayState.ConfirmRestore:

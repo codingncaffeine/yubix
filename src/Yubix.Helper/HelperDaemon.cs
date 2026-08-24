@@ -98,6 +98,7 @@ internal sealed class ManagerHandler : IMethodHandler
                 "ListDevices" => await _service.ListDevicesAsync(),
                 "Enroll" => await _service.EnrollAsync(
                     reader.ReadString(), reader.ReadString(), reader.ReadString()),
+                "RemoveKey" => await _service.RemoveKeyAsync(reader.ReadString(), reader.ReadUInt32()),
                 "SelfTest" => await _service.SelfTestAsync(reader.ReadString()),
                 "Apply" => await _service.ApplyAsync(reader.ReadString()),
                 "ConfirmKeep" => await _service.ConfirmKeepAsync(),
@@ -141,6 +142,10 @@ internal sealed class ManagerHandler : IMethodHandler
             <method name="Enroll">
               <arg type="s" direction="in"/><arg type="s" direction="in"/>
               <arg type="s" direction="in"/><arg type="s" direction="out"/>
+            </method>
+            <method name="RemoveKey">
+              <arg type="s" direction="in"/><arg type="u" direction="in"/>
+              <arg type="s" direction="out"/>
             </method>
             <method name="SelfTest"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>
             <method name="Apply"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>

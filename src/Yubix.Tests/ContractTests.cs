@@ -46,6 +46,44 @@ public class SurfacesTests
         Assert.Equal("plasmalogin", Surfaces.ServiceFor(Surfaces.Login));
         Assert.Throws<ArgumentException>(() => Surfaces.ServiceFor("tty"));
     }
+
+    [Fact]
+    public void LoginServiceFollowsDisplayManager()
+    {
+        Assert.Equal("plasmalogin", Surfaces.LoginServiceForDm("plasmalogin.service"));
+        Assert.Equal("sddm", Surfaces.LoginServiceForDm("sddm.service"));
+        Assert.Null(Surfaces.LoginServiceForDm("gdm.service"));
+        Assert.Null(Surfaces.LoginServiceForDm(null));
+
+        Assert.Equal("sddm", Surfaces.ServiceFor(Surfaces.Login, "sddm"));
+        Assert.Equal("sudo", Surfaces.ServiceFor(Surfaces.Sudo, "sddm")); // others unaffected
+    }
+
+    [Fact]
+    public void LoginResolutionFallsBackToProbing()
+    {
+        var root = Directory.CreateTempSubdirectory("yubix-test").FullName;
+        try
+        {
+            var paths = new YubixPaths(root);
+            // DM link decides when supported, regardless of files on disk.
+            Assert.Equal("sddm", Surfaces.ResolveLoginService(paths, "sddm.service"));
+            // No DM link and nothing on disk: default (plasmalogin).
+            Assert.Equal("plasmalogin", Surfaces.ResolveLoginService(paths, null));
+            // Unsupported/absent DM link: probe for a known service on disk.
+            Directory.CreateDirectory(paths.VendorPamD);
+            File.WriteAllText(paths.VendorService("sddm"), "auth include system-login\n");
+            Assert.Equal("sddm", Surfaces.ResolveLoginService(paths, null));
+            Assert.Equal("sddm", Surfaces.ResolveLoginService(paths, "gdm.service"));
+            // plasmalogin wins the probe when both exist (KnownLoginServices order).
+            File.WriteAllText(paths.VendorService("plasmalogin"), "auth include system-login\n");
+            Assert.Equal("plasmalogin", Surfaces.ResolveLoginService(paths, null));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }
 
 public class StateStoreTests

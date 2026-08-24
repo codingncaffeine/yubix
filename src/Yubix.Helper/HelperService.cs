@@ -76,12 +76,28 @@ public sealed partial class HelperService
 
     // ---------- GetStatus ----------
 
+    /// <summary>Basename of the display-manager symlink target ("sddm.service"),
+    /// read raw so a dangling link in a fake root still resolves.</summary>
+    private string? ReadDmUnit()
+    {
+        try
+        {
+            var link = new FileInfo(_paths.DisplayManagerLink);
+            var target = link.LinkTarget;
+            return target is null ? null : Path.GetFileName(target);
+        }
+        catch { return null; }
+    }
+
+    private string ResolveLoginService() => Surfaces.ResolveLoginService(_paths, ReadDmUnit());
+
     public Task<string> GetStatusAsync() => Locked(async () =>
     {
+        var loginService = ResolveLoginService();
         var surfaces = new Dictionary<string, object>();
         foreach (var id in Surfaces.All)
         {
-            var service = Surfaces.ServiceFor(id);
+            var service = Surfaces.ServiceFor(id, loginService);
             var etcPath = _paths.EtcService(service);
             var vendorPath = _paths.VendorService(service);
             string? current = File.Exists(etcPath) ? File.ReadAllText(etcPath) : null;
@@ -125,6 +141,14 @@ public sealed partial class HelperService
             pending = ReadPendingInfo(),
             attention = ReadAttentionLines(),
             health = await CheckSystemHealthAsync(),
+            // A DM switch (plasmalogin <-> sddm) can strand a Yubix line in
+            // the no-longer-active login service's file — surface that.
+            staleLoginServices = Surfaces.KnownLoginServices
+                .Where(s => s != loginService)
+                .Where(s => File.Exists(_paths.EtcService(s)) &&
+                    (PamGenerator.HasMarker(File.ReadAllText(_paths.EtcService(s))) ||
+                     _state.CreatedFiles.Contains(_paths.EtcService(s))))
+                .ToList(),
         };
         return Ok(status);
     });
@@ -148,7 +172,7 @@ public sealed partial class HelperService
         bool LockscreenNativeU2f,
         bool PamU2fConfPresent,
         string? DisplayManagerService,
-        bool DisplayManagerIsPlasmalogin);
+        bool LoginServiceSupported);
 
     /// <summary>Ways the OS can break key auth without touching a PAM file we
     /// wrote. Real mode only — none of this exists inside a fake root.</summary>
@@ -174,16 +198,9 @@ public sealed partial class HelperService
         if (klExit == 0 && ParsePacmanVersion(klOut) is { } klVersion && klVersion >= new Version(6, 8))
             lockscreenNativeU2f = true;
 
-        // The login-screen PAM service was just renamed once (sddm →
-        // plasmalogin); detect the next rename via the display-manager alias.
-        string? dmService = null;
-        try
-        {
-            var link = new FileInfo("/etc/systemd/system/display-manager.service");
-            if (link.Exists)
-                dmService = Path.GetFileName(link.ResolveLinkTarget(returnFinalTarget: true)?.FullName);
-        }
-        catch { }
+        // The login-screen PAM service already changed names once (sddm →
+        // plasmalogin on CachyOS); detect the next switch via the DM alias.
+        var dmService = ReadDmUnit();
 
         return new SystemHealth(
             polkitSandboxOk,
@@ -192,7 +209,7 @@ public sealed partial class HelperService
             // pin (pinverification, …) underneath our line.
             PamU2fConfPresent: File.Exists("/etc/security/pam_u2f.conf"),
             DisplayManagerService: dmService,
-            DisplayManagerIsPlasmalogin: dmService is null or "plasmalogin.service");
+            LoginServiceSupported: dmService is null || Surfaces.LoginServiceForDm(dmService) is not null);
     }
 
     private object? ReadPendingInfo()
@@ -263,9 +280,10 @@ public sealed partial class HelperService
                     : "no FIDO2 security key detected — insert your key");
         }
 
+        var loginService = ResolveLoginService();
         foreach (var id in Surfaces.All)
         {
-            var service = Surfaces.ServiceFor(id);
+            var service = Surfaces.ServiceFor(id, loginService);
             var etcPath = _paths.EtcService(service);
             var vendorPath = _paths.VendorService(service);
             var baseContent = File.Exists(etcPath) ? File.ReadAllText(etcPath)
@@ -371,6 +389,59 @@ public sealed partial class HelperService
         StateStore.Save(_paths, _state);
 
         return Ok(new { user, nickname, credentialCount = count, simulated, staged = true });
+    });
+
+    // ---------- RemoveKey ----------
+
+    public Task<string> RemoveKeyAsync(string user, uint index) => Locked(() =>
+    {
+        if (string.IsNullOrWhiteSpace(user)) return Task.FromResult(Err("no user given"));
+        if (!UserNameRegex().IsMatch(user)) return Task.FromResult(Err("invalid username"));
+        if (File.Exists(_paths.StagedMappingFile))
+            return Task.FromResult(Err(
+                "an unverified enrollment is staged — finish its self-test (or Restore Defaults) before removing keys"));
+        if (!File.Exists(_paths.MappingFile))
+            return Task.FromResult(Err("no keys are enrolled"));
+
+        string newContent;
+        try
+        {
+            newContent = MappingFile.RemoveCredential(
+                File.ReadAllText(_paths.MappingFile), user, (int)index);
+        }
+        catch (ArgumentException ex)
+        {
+            return Task.FromResult(Err(ex.Message));
+        }
+
+        // Backed up like any other change, so `yubix-restore --last` can undo
+        // a fat-fingered removal. An empty mapping is deleted outright —
+        // GetStatus and the Apply guard then read "nothing enrolled".
+        Transaction.Apply(_paths, new List<FileChange>
+        {
+            new(_paths.MappingFile, newContent.Length == 0 ? null : newContent),
+        }, "remove-key");
+
+        // Enrollments only append, so the Nth credential on the user's line
+        // is the Nth state entry for that user; drop it, refresh the counts.
+        var userKeys = _state.Keys.Where(k => k.User == user).ToList();
+        if (index < userKeys.Count) _state.Keys.Remove(userKeys[(int)index]);
+        var remaining = MappingFile.CredentialCount(newContent, user);
+        foreach (var k in _state.Keys.Where(k => k.User == user)) k.CredentialCount = remaining;
+        StateStore.Save(_paths, _state);
+
+        return Task.FromResult(Ok(new
+        {
+            removed = true,
+            user,
+            remaining,
+            // Removing the last key never locks anyone out: nouserok makes
+            // pam_u2f return PAM_IGNORE for credential-less users, so even
+            // 2FA surfaces degrade to password-only for them.
+            note = remaining == 0
+                ? "last key removed for this user — every surface falls back to password for them"
+                : null,
+        }));
     });
 
     // ---------- SelfTest ----------
@@ -533,10 +604,11 @@ public sealed partial class HelperService
         var preState = Json.Deserialize<YubixState>(Json.Serialize(_state))!;
         var changes = new List<FileChange>();
         var newlyCreated = new List<string>();
+        var loginService = ResolveLoginService();
 
         foreach (var (id, mode) in cfg.Modes)
         {
-            var service = Surfaces.ServiceFor(id);
+            var service = Surfaces.ServiceFor(id, loginService);
             var etcPath = _paths.EtcService(service);
             var vendorPath = _paths.VendorService(service);
             var etcExists = File.Exists(etcPath);
@@ -643,10 +715,11 @@ public sealed partial class HelperService
     private void WriteSnapshot()
     {
         var lines = new List<string>();
+        var loginService = ResolveLoginService();
         foreach (var (id, mode) in _state.AppliedModes)
         {
             if (mode == SurfaceMode.Off) continue;
-            var service = Surfaces.ServiceFor(id);
+            var service = Surfaces.ServiceFor(id, loginService);
             var rec = _state.SurfaceRecords.GetValueOrDefault(id);
             lines.Add(string.Join('\t',
                 service,
@@ -719,9 +792,15 @@ public sealed partial class HelperService
         if (_pending is not null) DoRevert("restore-defaults requested");
 
         var changes = new List<FileChange>();
-        foreach (var id in Surfaces.All)
+        var loginService = ResolveLoginService();
+        // Clean every known login service, not just the active one: a display
+        // manager switch must not strand a stale Yubix line behind.
+        var services = Surfaces.All.Select(id => Surfaces.ServiceFor(id, loginService))
+            .Concat(Surfaces.KnownLoginServices)
+            .Distinct();
+        foreach (var service in services)
         {
-            var etcPath = _paths.EtcService(Surfaces.ServiceFor(id));
+            var etcPath = _paths.EtcService(service);
             if (!File.Exists(etcPath)) continue;
             var content = File.ReadAllText(etcPath);
             if (_state.CreatedFiles.Contains(etcPath))

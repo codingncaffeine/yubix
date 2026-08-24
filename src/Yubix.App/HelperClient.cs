@@ -10,6 +10,7 @@ public interface IYubixManager : IDBusObject
     Task<string> PreflightAsync();
     Task<string> ListDevicesAsync();
     Task<string> EnrollAsync(string user, string nickname, string pin);
+    Task<string> RemoveKeyAsync(string user, uint index);
     Task<string> SelfTestAsync(string configJson);
     Task<string> ApplyAsync(string configJson);
     Task<string> ConfirmKeepAsync();

@@ -52,6 +52,28 @@ public static class MappingFile
         return string.Join('\n', lines) + "\n";
     }
 
+    /// <summary>Removes the index-th credential (0-based) from a user's line.
+    /// Enrollments only ever append, so index N is the Nth enrolled key.
+    /// Dropping the last credential drops the whole line; an empty result
+    /// string means the file itself should be removed.</summary>
+    public static string RemoveCredential(string content, string user, int index)
+    {
+        var lines = content.Replace("\r\n", "\n").Split('\n')
+            .Where(l => l.Trim().Length > 0)
+            .ToList();
+        var li = lines.FindIndex(l => l.StartsWith(user + ":", StringComparison.Ordinal));
+        if (li < 0)
+            throw new ArgumentException($"no enrolled keys found for '{user}'");
+        var parts = lines[li].Split(':');
+        if (index < 0 || index + 1 >= parts.Length)
+            throw new ArgumentException($"'{user}' has no credential #{index + 1}");
+        var creds = parts.Skip(1).ToList();
+        creds.RemoveAt(index);
+        if (creds.Count == 0) lines.RemoveAt(li);
+        else lines[li] = user + ":" + string.Join(':', creds);
+        return lines.Count == 0 ? "" : string.Join('\n', lines) + "\n";
+    }
+
     public static int CredentialCount(string content, string user)
     {
         foreach (var line in content.Split('\n'))

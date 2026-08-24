@@ -8,3 +8,9 @@ obj/
 .idea/
 artifacts/
 *.nupkg
+
+# makepkg build artifacts
+packaging/src/
+packaging/pkg/
+packaging/*.pkg.tar.zst
+packaging/*.log

@@ -124,7 +124,7 @@
                 <StackPanel Spacing="2" VerticalAlignment="Center">
                   <TextBlock Text="Login screen" FontWeight="SemiBold" FontSize="14"/>
                   <TextBlock Classes="muted" TextWrapping="Wrap"
-                             Text="Plasma Login Manager — press Enter on the empty password box, then touch your key. Note: passwordless login leaves KWallet locked."/>
+                             Text="Your display manager's login screen (Plasma Login Manager or SDDM) — press Enter on the empty password box, then touch your key. Note: passwordless login leaves KWallet locked."/>
                 </StackPanel>
                 <ComboBox Grid.Column="1" x:Name="LoginModeBox" HorizontalAlignment="Stretch"
                           VerticalAlignment="Center" SelectionChanged="OnModeChanged">
