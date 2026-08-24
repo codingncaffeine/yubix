@@ -51,6 +51,7 @@ No general-purpose GUI configurator for pam_u2f exists on any toolkit. First mov
 - The mapping file must be **central and root-owned** (`/etc/u2f_mappings`, `root:root 0644`): per-user files are user-writable (2FA self-bypass) and break on encrypted homes. Mode must be 0644, not 0600, because the KDE lock-screen greeter runs as the session user and must read it (verified failure reports with 0600).
 - Failed touches do **not** increment `pam_faillock` (verified against Arch's system-auth flow) — but wrong passwords typed during 2FA do, and an existing faillock lock will make our tests fail confusingly → preflight checks and offers `faillock --reset`.
 - `nouserok` (post-1.3.1: returns PAM_IGNORE) makes rollout per-user safe: users without enrolled keys keep password-only behavior.
+- `nodetect` is always set: pam_u2f's default pre-flight credential probe cannot be answered silently by many YubiKey firmwares — the key waits **dark** for a "wake-up" touch before the real blinking touch (double-touch complaint; confirmed live on a YubiKey 5C NFC fw 5.7.4, and the Arch wiki documents the same workaround). Cost: the touch cue can show even when the right key isn't inserted — cosmetic, acceptable.
 
 **Desktop integration reality (per surface):**
 | Surface | PAM service | Behavior today (Plasma 6.7) | Notes |
@@ -123,7 +124,7 @@ This is the product's soul, in seven layers:
 **Exact PAM changes per surface/mode** (all lines tagged `# yubix` for idempotent parsing, the chwd idiom):
 
 - `sudo` — passwordless: insert **before** `auth include system-auth`:
-  `auth sufficient pam_u2f.so authfile=/etc/u2f_mappings origin=pam://linux-login appid=pam://linux-login cue nouserok # yubix`
+  `auth sufficient pam_u2f.so authfile=/etc/u2f_mappings origin=pam://linux-login appid=pam://linux-login cue nouserok nodetect # yubix`
   2FA: same line with `required`, inserted **after** the include (Yubico-documented pattern; Arch's system-auth control flow verified compatible).
 - `polkit-1` — create `/etc/pam.d/polkit-1` as vendor copy + the same line (position per mode as above).
 - `plasmalogin` — create `/etc/pam.d/plasmalogin` as vendor copy + `sufficient … nouserok` first line (Arch-wiki-endorsed; passwordless only in v1).

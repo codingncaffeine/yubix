@@ -25,7 +25,12 @@ public static partial class PamGenerator
         if (mode == SurfaceMode.Off)
             throw new ArgumentException("no line for mode Off");
         var control = mode == SurfaceMode.Passwordless ? "sufficient" : "required";
-        return $"auth {control} pam_u2f.so authfile={authfile} origin={origin} appid={origin} cue nouserok {Marker}";
+        // nodetect: skip pam_u2f's pre-flight credential probe. Many YubiKey
+        // firmwares cannot answer it silently, leaving the key dark and
+        // waiting for a "wake-up" touch before the real (blinking) touch —
+        // the classic double-touch complaint. Skipping it means one touch,
+        // blinking immediately.
+        return $"auth {control} pam_u2f.so authfile={authfile} origin={origin} appid={origin} cue nouserok nodetect {Marker}";
     }
 
     public static bool HasMarker(string content) =>
@@ -87,7 +92,7 @@ public static partial class PamGenerator
     /// <summary>Scratch service used for the pre-apply live self-test. Contains
     /// only pam_u2f — it cannot lock anything and never touches faillock.</summary>
     public static string RenderSelfTestService(string origin, string authfile) =>
-        $"auth required pam_u2f.so authfile={authfile} origin={origin} appid={origin} cue\n" +
+        $"auth required pam_u2f.so authfile={authfile} origin={origin} appid={origin} cue nodetect\n" +
         "account required pam_permit.so\n";
 
     /// <summary>Fake-mode scratch service: validates the whole child/conversation
