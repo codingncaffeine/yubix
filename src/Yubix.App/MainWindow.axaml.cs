@@ -169,10 +169,11 @@ public partial class MainWindow : Window
         if (_busy) return;
         NickBox.Text = "";
         PinBox.Text = "";
-        ShowOverlay(OverlayState.EnrollForm,
-            "Enroll this security key",
-            $"The key will be enrolled for user “{Environment.UserName}”. You'll touch it twice: " +
-            "once to enroll, then once on a live test that proves it works — only then does it become usable.",
+        var enrollIntro = _helper.FakeMode
+            ? "DEMO MODE: no physical key is involved — enrollment is simulated instantly and the touch steps are skipped. In a real run you would touch your key twice."
+            : $"The key will be enrolled for user “{Environment.UserName}”. You'll touch it twice: " +
+              "once to enroll, then once on a live test that proves it works — only then does it become usable.";
+        ShowOverlay(OverlayState.EnrollForm, "Enroll this security key", enrollIntro,
             primary: "Start enrollment", secondary: "Cancel");
     }
 
@@ -296,8 +297,12 @@ public partial class MainWindow : Window
         SetBusy(true);
         try
         {
-            ShowOverlay(OverlayState.Touch, "Touch your key",
-                "Enrolling… when the key starts blinking, touch it.", primary: null, secondary: null);
+            ShowOverlay(OverlayState.Touch,
+                _helper.FakeMode ? "Simulating enrollment (demo)" : "Touch your key",
+                _helper.FakeMode
+                    ? "Demo mode: creating a simulated credential — no touch needed."
+                    : "Enrolling… when the key starts blinking, touch it.",
+                primary: null, secondary: null);
             OverlayTouchGlyph.IsVisible = true;
 
             var enroll = await _helper.CallAsync(m => m.EnrollAsync(user, nickname, pin));
@@ -310,8 +315,11 @@ public partial class MainWindow : Window
             }
             Log($"enrolled “{nickname}” for {user} (staged)");
 
-            ShowOverlay(OverlayState.Touch, "Touch again to verify",
-                "Yubix is now live-testing the enrollment on a throwaway PAM service. Touch the key when it blinks — nothing real changes until this passes.",
+            ShowOverlay(OverlayState.Touch,
+                _helper.FakeMode ? "Simulating verification (demo)" : "Touch again to verify",
+                _helper.FakeMode
+                    ? "Demo mode: running the live PAM self-test against the simulated credential."
+                    : "Yubix is now live-testing the enrollment on a throwaway PAM service. Touch the key when it blinks — nothing real changes until this passes.",
                 primary: null, secondary: null);
             OverlayTouchGlyph.IsVisible = true;
 
@@ -320,8 +328,10 @@ public partial class MainWindow : Window
 
             if (test.Ok && test.Data?["success"]?.GetValue<bool>() == true)
             {
-                ShowOverlay(OverlayState.Message, "Key verified ✔",
-                    $"“{nickname}” enrolled and live-tested successfully. You can now enable it for sudo, the lock screen, or login below.",
+                ShowOverlay(OverlayState.Message,
+                    _helper.FakeMode ? "Simulated key verified ✔ (demo)" : "Key verified ✔",
+                    $"“{nickname}” enrolled and live-tested successfully. You can now enable it for sudo, the lock screen, or login below." +
+                    (_helper.FakeMode ? " (Demo mode — this was a simulated credential, not your real key.)" : ""),
                     primary: "Done", secondary: null);
                 Log("self-test passed — enrollment promoted to live mapping");
             }
