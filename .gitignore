@@ -1,3 +1,6 @@
+# Internal dev handoff — lists unfixed security findings; never publish.
+HANDOFF.md
+
 bin/
 obj/
 *.user
