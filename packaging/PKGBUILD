@@ -2,7 +2,7 @@
 # Builds from the local source tree (dev). Switch source= to a release
 # tarball for AUR publication.
 pkgname=yubix
-pkgver=0.1.0
+pkgver=0.0.4
 pkgrel=1
 pkgdesc="Use your YubiKey for login and sudo on CachyOS — safely, with no terminal"
 arch=('x86_64')
