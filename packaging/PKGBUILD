@@ -1,8 +1,6 @@
 # Maintainer: codingncaffeine
-# Builds from the local source tree (dev). Switch source= to a release
-# tarball for AUR publication.
 pkgname=yubix
-pkgver=0.0.4
+pkgver=0.0.5
 pkgrel=1
 pkgdesc="Use your YubiKey for login and sudo on CachyOS — safely, with no terminal"
 arch=('x86_64')
@@ -12,19 +10,22 @@ depends=('dotnet-runtime' 'pam-u2f' 'libfido2' 'polkit')
 makedepends=('dotnet-sdk')
 options=('!strip')
 install=yubix.install
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
 
 build() {
-    cd "$startdir/.."
-    dotnet publish src/Yubix.App/Yubix.App.csproj -c Release -o "$srcdir/app" --nologo
-    dotnet publish src/Yubix.Helper/Yubix.Helper.csproj -c Release -o "$srcdir/helper" --nologo
+    cd "$pkgname-$pkgver"
+    export DOTNET_CLI_TELEMETRY_OPTOUT=1
+    dotnet publish src/Yubix.App/Yubix.App.csproj -c Release -o build/app --nologo
+    dotnet publish src/Yubix.Helper/Yubix.Helper.csproj -c Release -o build/helper --nologo
 }
 
 package() {
-    cd "$startdir/.."
+    cd "$pkgname-$pkgver"
 
     install -dm755 "$pkgdir/usr/lib/yubix"
-    cp -a "$srcdir/app" "$pkgdir/usr/lib/yubix/app"
-    cp -a "$srcdir/helper" "$pkgdir/usr/lib/yubix/helper"
+    cp -a build/app "$pkgdir/usr/lib/yubix/app"
+    cp -a build/helper "$pkgdir/usr/lib/yubix/helper"
 
     install -dm755 "$pkgdir/usr/bin"
     ln -s /usr/lib/yubix/app/yubix "$pkgdir/usr/bin/yubix"
