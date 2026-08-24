@@ -181,10 +181,24 @@ public sealed class HelperService
 
     public Task<string> ListDevicesAsync() => Locked(async () =>
     {
-        if (_paths.FakeMode)
-            return Ok(new { devices = new[] { new { path = "/dev/fake0", description = "Simulated key (fake mode)" } } });
+        // Even in fake-root mode, prefer the REAL key when one is plugged in:
+        // the sandbox isolates files, not hardware — the demo should exercise
+        // the full enroll/touch/authenticate chain. Simulation is only the
+        // fallback when no device is present (keeps CI and keyless demos working).
         var devices = await FidoDevices.ListAsync();
-        return Ok(new { devices = devices.Select(d => new { path = d.Path, description = d.Description }) });
+        if (devices.Count > 0)
+            return Ok(new
+            {
+                simulated = false,
+                devices = devices.Select(d => new { d.Path, d.Description }),
+            });
+        if (_paths.FakeMode)
+            return Ok(new
+            {
+                simulated = true,
+                devices = new[] { new { Path = "/dev/fake0", Description = "Simulated key (no real key detected)" } },
+            });
+        return Ok(new { simulated = false, devices = Array.Empty<object>() });
     });
 
     // ---------- Enroll ----------
@@ -196,7 +210,8 @@ public sealed class HelperService
 
         string credential;
         bool simulated = false;
-        if (_paths.FakeMode)
+        var realDevices = await FidoDevices.ListAsync();
+        if (_paths.FakeMode && realDevices.Count == 0)
         {
             credential = $"FAKEKH{Guid.NewGuid():N},FAKEPK,es256,+presence";
             simulated = true;
@@ -250,7 +265,13 @@ public sealed class HelperService
             if (!stagedExists && !File.Exists(_paths.MappingFile))
                 return Err("nothing enrolled yet — enroll a key first");
             var authfile = _paths.AuthfileArgument(staged: stagedExists);
-            var content = _paths.FakeMode
+            // Real pam_u2f runs even in fake mode when the mapping holds real
+            // credentials — pam_wrapper only redirects the service directory,
+            // so the module, the authfile path, and the physical key are all
+            // exercised for real. Only simulated (FAKEKH) credentials fall
+            // back to the pam_permit plumbing test.
+            var simulatedCreds = File.ReadAllText(authfile).Contains("FAKEKH", StringComparison.Ordinal);
+            var content = _paths.FakeMode && simulatedCreds
                 ? PamGenerator.FakeSelfTestService
                 : PamGenerator.RenderSelfTestService(_state.Origin, authfile);
             Transaction.WriteAtomically(_paths.SelfTestServicePath, content);

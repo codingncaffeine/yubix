@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private DateTime _deadlineUtc;
     private bool _updatingUi;
     private bool _busy;
+    private bool _simulatedDevice;
 
     private static readonly IBrush BadgeOnBrush = new SolidColorBrush(Color.Parse("#153A41"));
     private static readonly IBrush BadgeOnText = new SolidColorBrush(Color.Parse("#5BD5E8"));
@@ -143,9 +144,12 @@ public partial class MainWindow : Window
             DeviceText.Text = "Device check failed: " + result.Error;
             return;
         }
+        _simulatedDevice = result.Data?["simulated"]?.GetValue<bool>() ?? false;
         var devices = result.Data?["devices"] as JsonArray;
         DeviceText.Text = devices is { Count: > 0 }
-            ? "✅  " + string.Join("   •   ", devices.Select(d => d?["description"]?.GetValue<string>()))
+            ? (_simulatedDevice ? "⚠️  " : "✅  ") +
+              string.Join("   •   ", devices.Select(d => d?["description"]?.GetValue<string>())) +
+              (_helper.FakeMode && !_simulatedDevice ? "   (real key, demo sandbox)" : "")
             : "No security key detected — plug in your YubiKey (or any FIDO2 key) and hit Refresh.";
     }
 
@@ -169,10 +173,19 @@ public partial class MainWindow : Window
         if (_busy) return;
         NickBox.Text = "";
         PinBox.Text = "";
-        var enrollIntro = _helper.FakeMode
-            ? "DEMO MODE: no physical key is involved — enrollment is simulated instantly and the touch steps are skipped. In a real run you would touch your key twice."
-            : $"The key will be enrolled for user “{Environment.UserName}”. You'll touch it twice: " +
-              "once to enroll, then once on a live test that proves it works — only then does it become usable.";
+        string enrollIntro;
+        if (_helper.FakeMode && _simulatedDevice)
+        {
+            enrollIntro = "DEMO (no key detected): enrollment will be simulated instantly with no touch steps. " +
+                          "Plug in your key and hit Refresh to demo the real hardware flow.";
+        }
+        else
+        {
+            enrollIntro = $"The key will be enrolled for user “{Environment.UserName}”. You'll touch it twice: " +
+                          "once to enroll, then once on a live test that proves it works — only then does it become usable.";
+            if (_helper.FakeMode)
+                enrollIntro += " (Demo sandbox: your real key is used, but all file changes stay inside the demo copy of the system.)";
+        }
         ShowOverlay(OverlayState.EnrollForm, "Enroll this security key", enrollIntro,
             primary: "Start enrollment", secondary: "Cancel");
     }
@@ -297,10 +310,10 @@ public partial class MainWindow : Window
         SetBusy(true);
         try
         {
+            var sim = _helper.FakeMode && _simulatedDevice;
             ShowOverlay(OverlayState.Touch,
-                _helper.FakeMode ? "Simulating enrollment (demo)" : "Touch your key",
-                _helper.FakeMode
-                    ? "Demo mode: creating a simulated credential — no touch needed."
+                sim ? "Simulating enrollment (demo)" : "Touch your key",
+                sim ? "Demo mode: creating a simulated credential — no touch needed."
                     : "Enrolling… when the key starts blinking, touch it.",
                 primary: null, secondary: null);
             OverlayTouchGlyph.IsVisible = true;
@@ -316,10 +329,9 @@ public partial class MainWindow : Window
             Log($"enrolled “{nickname}” for {user} (staged)");
 
             ShowOverlay(OverlayState.Touch,
-                _helper.FakeMode ? "Simulating verification (demo)" : "Touch again to verify",
-                _helper.FakeMode
-                    ? "Demo mode: running the live PAM self-test against the simulated credential."
-                    : "Yubix is now live-testing the enrollment on a throwaway PAM service. Touch the key when it blinks — nothing real changes until this passes.",
+                sim ? "Simulating verification (demo)" : "Touch again to verify",
+                sim ? "Demo mode: running the live PAM self-test against the simulated credential."
+                    : "Yubix is now live-testing the enrollment through real PAM on a throwaway service. Touch the key when it blinks — nothing becomes usable until this passes.",
                 primary: null, secondary: null);
             OverlayTouchGlyph.IsVisible = true;
 
@@ -329,9 +341,10 @@ public partial class MainWindow : Window
             if (test.Ok && test.Data?["success"]?.GetValue<bool>() == true)
             {
                 ShowOverlay(OverlayState.Message,
-                    _helper.FakeMode ? "Simulated key verified ✔ (demo)" : "Key verified ✔",
+                    sim ? "Simulated key verified ✔ (demo)" : "Key verified ✔",
                     $"“{nickname}” enrolled and live-tested successfully. You can now enable it for sudo, the lock screen, or login below." +
-                    (_helper.FakeMode ? " (Demo mode — this was a simulated credential, not your real key.)" : ""),
+                    (sim ? " (Demo — this was a simulated credential, not your real key.)"
+                         : _helper.FakeMode ? " (Demo sandbox — your real key authenticated through real PAM; only demo files were written.)" : ""),
                     primary: "Done", secondary: null);
                 Log("self-test passed — enrollment promoted to live mapping");
             }
