@@ -1,0 +1,49 @@
+# Maintainer: codingncaffeine
+# Builds from the local source tree (dev). Switch source= to a release
+# tarball for AUR publication.
+pkgname=yubix
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Use your YubiKey for login and sudo on CachyOS — safely, with no terminal"
+arch=('x86_64')
+url="https://github.com/codingncaffeine/yubix"
+license=('LicenseRef-TBD')
+depends=('dotnet-runtime' 'pam-u2f' 'libfido2' 'polkit')
+makedepends=('dotnet-sdk')
+options=('!strip')
+
+build() {
+    cd "$startdir/.."
+    dotnet publish src/Yubix.App/Yubix.App.csproj -c Release -o "$srcdir/app" --nologo
+    dotnet publish src/Yubix.Helper/Yubix.Helper.csproj -c Release -o "$srcdir/helper" --nologo
+}
+
+package() {
+    cd "$startdir/.."
+
+    install -dm755 "$pkgdir/usr/lib/yubix"
+    cp -a "$srcdir/app" "$pkgdir/usr/lib/yubix/app"
+    cp -a "$srcdir/helper" "$pkgdir/usr/lib/yubix/helper"
+
+    install -dm755 "$pkgdir/usr/bin"
+    ln -s /usr/lib/yubix/app/yubix "$pkgdir/usr/bin/yubix"
+    install -Dm755 data/yubix-restore "$pkgdir/usr/bin/yubix-restore"
+
+    install -Dm644 data/io.github.codingncaffeine.yubix.policy \
+        "$pkgdir/usr/share/polkit-1/actions/io.github.codingncaffeine.yubix.policy"
+    install -Dm644 data/io.github.codingncaffeine.yubix.conf \
+        "$pkgdir/usr/share/dbus-1/system.d/io.github.codingncaffeine.yubix.conf"
+    install -Dm644 data/io.github.codingncaffeine.yubix.service \
+        "$pkgdir/usr/share/dbus-1/system-services/io.github.codingncaffeine.yubix.service"
+    install -Dm644 data/yubix-helper.service \
+        "$pkgdir/usr/lib/systemd/system/yubix-helper.service"
+    install -Dm644 data/yubix-failsafe.service \
+        "$pkgdir/usr/lib/systemd/system/yubix-failsafe.service"
+    install -Dm644 data/yubix.desktop \
+        "$pkgdir/usr/share/applications/yubix.desktop"
+
+    for size in 512 256 128 64 48 32; do
+        install -Dm644 "assets/icons/yubix-${size}.png" \
+            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/yubix.png"
+    done
+}

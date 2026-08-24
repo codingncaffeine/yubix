@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Yubix
+GenericName=Security Key Login Setup
+Comment=Use your YubiKey for login and sudo — safely, with no terminal
+Exec=yubix
+Icon=yubix
+Terminal=false
+Categories=System;Security;Settings;
+Keywords=yubikey;fido2;u2f;security;key;login;sudo;pam;

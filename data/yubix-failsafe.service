@@ -1,0 +1,15 @@
+[Unit]
+Description=Yubix boot failsafe — revert unconfirmed authentication changes
+Documentation=https://github.com/codingncaffeine/yubix
+# Only runs when an apply was left unconfirmed (crash/reboot mid-countdown).
+ConditionPathExists=/var/lib/yubix/pending-apply
+DefaultDependencies=no
+After=local-fs.target
+Before=display-manager.service systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/yubix-restore --failsafe
+
+[Install]
+WantedBy=sysinit.target

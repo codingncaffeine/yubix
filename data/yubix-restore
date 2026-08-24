@@ -1,0 +1,57 @@
+#!/bin/sh
+# yubix-restore — replay a Yubix backup manifest and undo PAM changes.
+# Zero dependencies beyond POSIX sh + coreutils, so it works from a TTY or
+# emergency shell even when the desktop, D-Bus, or the .NET runtime is broken.
+#
+# Usage:
+#   yubix-restore --failsafe        revert an unconfirmed apply (boot failsafe)
+#   yubix-restore --last            revert the most recent backup manifest
+#   yubix-restore <manifest.txt>    revert a specific manifest
+set -u
+
+STATE_DIR="${YUBIX_ROOT:-}/var/lib/yubix"
+FLAG="$STATE_DIR/pending-apply"
+
+case "${1:-}" in
+    --failsafe)
+        [ -f "$FLAG" ] || exit 0
+        MANIFEST=$(sed -n 's/^manifest=//p' "$FLAG")
+        ;;
+    --last)
+        MANIFEST=$(ls -1t "$STATE_DIR"/backups/*/manifest.txt 2>/dev/null | head -n1)
+        ;;
+    "")
+        echo "usage: yubix-restore --failsafe | --last | <manifest.txt>" >&2
+        exit 2
+        ;;
+    *)
+        MANIFEST="$1"
+        ;;
+esac
+
+if [ -z "${MANIFEST:-}" ] || [ ! -f "$MANIFEST" ]; then
+    echo "yubix-restore: no manifest found" >&2
+    exit 1
+fi
+
+echo "yubix-restore: replaying $MANIFEST"
+FAIL=0
+while IFS="	" read -r op dest backup; do
+    case "$op" in
+        restore)
+            if cp -a -- "$backup" "$dest"; then
+                echo "  restored $dest"
+            else
+                echo "  FAILED to restore $dest" >&2
+                FAIL=1
+            fi
+            ;;
+        delete)
+            rm -f -- "$dest" && echo "  removed $dest"
+            ;;
+    esac
+done < "$MANIFEST"
+
+rm -f -- "$FLAG"
+[ "$FAIL" -eq 0 ] && echo "yubix-restore: done — password authentication restored"
+exit "$FAIL"

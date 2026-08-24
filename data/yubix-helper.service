@@ -1,0 +1,12 @@
+[Unit]
+Description=Yubix privileged helper (security-key login setup)
+Documentation=https://github.com/codingncaffeine/yubix
+
+[Service]
+Type=dbus
+BusName=io.github.codingncaffeine.yubix
+ExecStart=/usr/lib/yubix/helper/yubix-helper
+# The helper edits /etc/pam.d and needs hidraw access for enrollment; keep
+# sandboxing light for v1 and revisit hardening once the feature set settles.
+NoNewPrivileges=no
+ProtectSystem=off

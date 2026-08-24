@@ -1,0 +1,92 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Yubix.App.App"
+             RequestedThemeVariant="Dark">
+
+  <Application.Resources>
+    <SolidColorBrush x:Key="YxWindowBg">#1E1E22</SolidColorBrush>
+    <SolidColorBrush x:Key="YxCardBg">#26262B</SolidColorBrush>
+    <SolidColorBrush x:Key="YxCardBorder">#35353C</SolidColorBrush>
+    <SolidColorBrush x:Key="YxTextPrimary">#F2F2F5</SolidColorBrush>
+    <SolidColorBrush x:Key="YxTextMuted">#9A9AA3</SolidColorBrush>
+    <SolidColorBrush x:Key="YxAccent">#1FBFD6</SolidColorBrush>
+    <SolidColorBrush x:Key="YxAccentHover">#3ACDE2</SolidColorBrush>
+    <SolidColorBrush x:Key="YxAccentText">#0E2429</SolidColorBrush>
+    <SolidColorBrush x:Key="YxDanger">#E06C6C</SolidColorBrush>
+  </Application.Resources>
+
+  <Application.Styles>
+    <FluentTheme />
+
+    <Style Selector="TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource YxTextPrimary}"/>
+    </Style>
+    <Style Selector="TextBlock.h1">
+      <Setter Property="FontSize" Value="26"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+    </Style>
+    <Style Selector="TextBlock.h2">
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="TextBlock.muted">
+      <Setter Property="Foreground" Value="{StaticResource YxTextMuted}"/>
+      <Setter Property="FontSize" Value="13"/>
+    </Style>
+
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{StaticResource YxCardBg}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource YxCardBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="12"/>
+      <Setter Property="Padding" Value="20"/>
+    </Style>
+
+    <Style Selector="Border.pill">
+      <Setter Property="Background" Value="#2C2C33"/>
+      <Setter Property="BorderBrush" Value="#3A3A42"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="999"/>
+      <Setter Property="Padding" Value="12,5"/>
+    </Style>
+
+    <Style Selector="Button">
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Padding" Value="14,8"/>
+    </Style>
+
+    <Style Selector="Button.accent">
+      <Setter Property="Background" Value="{StaticResource YxAccent}"/>
+      <Setter Property="Foreground" Value="{StaticResource YxAccentText}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource YxAccentHover}"/>
+      <Setter Property="Foreground" Value="{StaticResource YxAccentText}"/>
+    </Style>
+    <Style Selector="Button.accent:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#17A8BD"/>
+      <Setter Property="Foreground" Value="{StaticResource YxAccentText}"/>
+    </Style>
+
+    <Style Selector="Button.danger">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderBrush" Value="#54383C"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Foreground" Value="{StaticResource YxDanger}"/>
+    </Style>
+    <Style Selector="Button.danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#3A2A2D"/>
+      <Setter Property="Foreground" Value="{StaticResource YxDanger}"/>
+    </Style>
+
+    <Style Selector="Button.subtle">
+      <Setter Property="Background" Value="#2E2E35"/>
+      <Setter Property="Foreground" Value="{StaticResource YxTextPrimary}"/>
+    </Style>
+    <Style Selector="Button.subtle:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="#3A3A42"/>
+      <Setter Property="Foreground" Value="{StaticResource YxTextPrimary}"/>
+    </Style>
+  </Application.Styles>
+</Application>

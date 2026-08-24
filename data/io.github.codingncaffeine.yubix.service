@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=io.github.codingncaffeine.yubix
+Exec=/usr/lib/yubix/helper/yubix-helper
+User=root
+SystemdService=yubix-helper.service

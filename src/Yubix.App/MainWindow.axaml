@@ -1,0 +1,198 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Yubix.App.MainWindow"
+        Title="Yubix"
+        Icon="/Assets/yubix.png"
+        Width="940" Height="800"
+        MinWidth="760" MinHeight="620"
+        WindowStartupLocation="CenterScreen"
+        Background="#1E1E22">
+
+  <Panel>
+    <DockPanel>
+
+      <!-- Header -->
+      <Border DockPanel.Dock="Top" Padding="28,22,28,12">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Spacing="3">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Border Width="15" Height="15" CornerRadius="8" Background="#1FBFD6"
+                      VerticalAlignment="Center"/>
+              <TextBlock Classes="h1" Text="Yubix"/>
+            </StackPanel>
+            <TextBlock Classes="muted"
+                       Text="Security-key login and sudo for CachyOS — no terminal required"/>
+          </StackPanel>
+          <Border Grid.Column="1" Classes="pill" VerticalAlignment="Center">
+            <TextBlock x:Name="StatusPill" FontSize="12" Text="Connecting…"/>
+          </Border>
+        </Grid>
+      </Border>
+
+      <!-- Footer -->
+      <Border DockPanel.Dock="Bottom" Background="#232328" BorderBrush="#33333A"
+              BorderThickness="0,1,0,0" Padding="28,14">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock x:Name="FooterHint" Classes="muted" TextWrapping="Wrap"
+                     VerticalAlignment="Center" Margin="0,0,16,0"
+                     Text="Every apply runs with an automatic safety countdown, and TTY login (Ctrl+Alt+F3) is never modified — your password always works there."/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+            <Button x:Name="RestoreBtn" Classes="danger" Content="Restore defaults"
+                    Click="OnRestoreDefaults"/>
+            <Button x:Name="ApplyBtn" Classes="accent" Content="Apply changes"
+                    MinWidth="150" HorizontalContentAlignment="Center" Click="OnApply"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <!-- Content -->
+      <ScrollViewer>
+        <StackPanel MaxWidth="880" Margin="24,8,24,24" Spacing="14">
+
+          <!-- Security key card -->
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="h2" Text="Security key" VerticalAlignment="Center"/>
+                <Button Grid.Column="1" x:Name="RefreshBtn" Classes="subtle"
+                        Content="Refresh" Click="OnRefresh"/>
+              </Grid>
+              <TextBlock x:Name="DeviceText" Classes="muted" TextWrapping="Wrap"
+                         Text="Looking for a security key…"/>
+            </StackPanel>
+          </Border>
+
+          <!-- Enrolled keys card -->
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="h2" Text="Enrolled keys" VerticalAlignment="Center"/>
+                <Button Grid.Column="1" x:Name="EnrollBtn" Classes="accent"
+                        Content="Enroll this key…" Click="OnEnroll"/>
+              </Grid>
+              <StackPanel x:Name="KeysPanel" Spacing="6"/>
+              <TextBlock x:Name="KeysEmptyText" Classes="muted"
+                         Text="No keys enrolled yet. Plug in your key and click “Enroll this key…” — you'll touch it twice: once to enroll, once to verify it really works."
+                         TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+
+          <!-- Surfaces card -->
+          <Border Classes="card">
+            <StackPanel Spacing="16">
+              <TextBlock Classes="h2" Text="Where your key is used"/>
+
+              <Grid ColumnDefinitions="*,230,Auto" RowDefinitions="Auto">
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Text="Sudo &amp; admin prompts" FontWeight="SemiBold" FontSize="14"/>
+                  <TextBlock Classes="muted" TextWrapping="Wrap"
+                             Text="Terminal sudo, pkexec/run0 and system-settings authorization dialogs"/>
+                </StackPanel>
+                <ComboBox Grid.Column="1" x:Name="SudoModeBox" HorizontalAlignment="Stretch"
+                          VerticalAlignment="Center" SelectionChanged="OnModeChanged">
+                  <ComboBoxItem Content="Off"/>
+                  <ComboBoxItem Content="Touch instead of password"/>
+                  <ComboBoxItem Content="Password + touch (2FA)"/>
+                </ComboBox>
+                <Border Grid.Column="2" x:Name="SudoBadge" Classes="pill" Margin="12,0,0,0"
+                        VerticalAlignment="Center" MinWidth="86">
+                  <TextBlock x:Name="SudoBadgeText" FontSize="11" HorizontalAlignment="Center" Text="off"/>
+                </Border>
+              </Grid>
+
+              <Grid ColumnDefinitions="*,230,Auto" RowDefinitions="Auto">
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Text="Lock screen" FontWeight="SemiBold" FontSize="14"/>
+                  <TextBlock Classes="muted" TextWrapping="Wrap"
+                             Text="Unlocking your Plasma session"/>
+                </StackPanel>
+                <ComboBox Grid.Column="1" x:Name="LockModeBox" HorizontalAlignment="Stretch"
+                          VerticalAlignment="Center" SelectionChanged="OnModeChanged">
+                  <ComboBoxItem Content="Off"/>
+                  <ComboBoxItem Content="Touch instead of password"/>
+                  <ComboBoxItem Content="Password + touch (2FA)"/>
+                </ComboBox>
+                <Border Grid.Column="2" x:Name="LockBadge" Classes="pill" Margin="12,0,0,0"
+                        VerticalAlignment="Center" MinWidth="86">
+                  <TextBlock x:Name="LockBadgeText" FontSize="11" HorizontalAlignment="Center" Text="off"/>
+                </Border>
+              </Grid>
+
+              <Grid ColumnDefinitions="*,230,Auto" RowDefinitions="Auto">
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                  <TextBlock Text="Login screen" FontWeight="SemiBold" FontSize="14"/>
+                  <TextBlock Classes="muted" TextWrapping="Wrap"
+                             Text="Plasma Login Manager — press Enter on the empty password box, then touch your key. Note: passwordless login leaves KWallet locked."/>
+                </StackPanel>
+                <ComboBox Grid.Column="1" x:Name="LoginModeBox" HorizontalAlignment="Stretch"
+                          VerticalAlignment="Center" SelectionChanged="OnModeChanged">
+                  <ComboBoxItem Content="Off"/>
+                  <ComboBoxItem Content="Touch instead of password"/>
+                </ComboBox>
+                <Border Grid.Column="2" x:Name="LoginBadge" Classes="pill" Margin="12,0,0,0"
+                        VerticalAlignment="Center" MinWidth="86">
+                  <TextBlock x:Name="LoginBadgeText" FontSize="11" HorizontalAlignment="Center" Text="off"/>
+                </Border>
+              </Grid>
+
+            </StackPanel>
+          </Border>
+
+          <!-- Safety card -->
+          <Border Classes="card">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="h2" Text="Safety net" VerticalAlignment="Center"/>
+                <Button Grid.Column="1" x:Name="RevertBtn" Classes="subtle"
+                        Content="Revert last change" Click="OnRevert"/>
+              </Grid>
+              <TextBlock Classes="muted" TextWrapping="Wrap"
+                         Text="• Your key is live-tested on a throwaway PAM service before anything real changes.&#x0a;• Applying starts a countdown — if you don't confirm, everything reverts automatically.&#x0a;• If the machine reboots mid-change, a boot failsafe restores password login before the login screen starts.&#x0a;• TTY console login is never touched, and every change is backed up and reversible."/>
+            </StackPanel>
+          </Border>
+
+          <!-- Log card -->
+          <Border Classes="card">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="h2" Text="Activity"/>
+              <TextBlock x:Name="LogText" Classes="muted" FontFamily="monospace"
+                         FontSize="12" TextWrapping="Wrap" Text=""/>
+            </StackPanel>
+          </Border>
+
+        </StackPanel>
+      </ScrollViewer>
+    </DockPanel>
+
+    <!-- Modal overlay -->
+    <Grid x:Name="Overlay" IsVisible="False" Background="#D9111114">
+      <Border Classes="card" MinWidth="430" MaxWidth="500" Padding="28"
+              VerticalAlignment="Center" HorizontalAlignment="Center">
+        <StackPanel Spacing="14">
+          <TextBlock x:Name="OverlayTitle" Classes="h2" FontSize="18" Text=""/>
+          <TextBlock x:Name="OverlayBody" Classes="muted" TextWrapping="Wrap" Text=""/>
+          <TextBlock x:Name="OverlayCountdown" FontSize="46" FontWeight="Bold"
+                     Foreground="#1FBFD6" IsVisible="False" HorizontalAlignment="Center" Text=""/>
+          <Border x:Name="OverlayTouchGlyph" IsVisible="False" Width="64" Height="64"
+                  CornerRadius="32" Background="#153A41" BorderBrush="#1FBFD6"
+                  BorderThickness="2" HorizontalAlignment="Center">
+            <Border Width="22" Height="22" CornerRadius="11" Background="#1FBFD6"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <StackPanel x:Name="OverlayForm" Spacing="8" IsVisible="False">
+            <TextBlock Classes="muted" Text="Key nickname"/>
+            <TextBox x:Name="NickBox" Watermark="e.g. Blue 5C — desk"/>
+            <TextBlock Classes="muted" Text="FIDO2 PIN (only if your key has one set)"/>
+            <TextBox x:Name="PinBox" PasswordChar="●" Watermark="Leave empty for touch-only keys"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+            <Button x:Name="OverlaySecondaryBtn" Classes="subtle" Content="Cancel"
+                    Click="OnOverlaySecondary"/>
+            <Button x:Name="OverlayPrimaryBtn" Classes="accent" Content="OK"
+                    Click="OnOverlayPrimary"/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Grid>
+  </Panel>
+</Window>
