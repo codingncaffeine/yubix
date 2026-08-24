@@ -5,10 +5,12 @@ namespace Yubix.Core;
 
 /// <summary>
 /// Generates and recognizes the single PAM line Yubix manages per service.
-/// Strategy (see docs/PLAN.md §5): passwordless inserts a `sufficient` line
-/// BEFORE the service's `auth include` line; 2FA inserts a `required` line
-/// AFTER it. Every managed line carries the trailing marker comment so it can
-/// be found, replaced, and stripped idempotently.
+/// Strategy (see docs/PLAN.md §5): both modes insert BEFORE the service's
+/// `auth include` line — passwordless as `sufficient`, 2FA as `required`.
+/// Inserting the required line first means nothing inside the included stack
+/// (a `sufficient` entry, say) can ever short-circuit past the second factor.
+/// Every managed line carries the trailing marker comment so it can be found,
+/// replaced, and stripped idempotently.
 /// </summary>
 public static partial class PamGenerator
 {
@@ -17,8 +19,11 @@ public static partial class PamGenerator
     [GeneratedRegex(@"^\s*(-?auth)\s+(include|substack)\s+\S+", RegexOptions.Compiled)]
     private static partial Regex AuthIncludeRegex();
 
-    [GeneratedRegex(@"^\s*auth\s+(sufficient|required)\s+pam_u2f\.so", RegexOptions.Compiled)]
-    private static partial Regex YubixLineRegex();
+    // The FULL shape of a line we manage: auth control + pam_u2f.so + the
+    // trailing marker. Matching anything looser (any line containing
+    // "# yubix") would strip a user's own comment that mentions the marker.
+    [GeneratedRegex(@"^\s*auth\s+(sufficient|required)\s+pam_u2f\.so\s.*#\s*yubix\s*$", RegexOptions.Compiled)]
+    private static partial Regex ManagedLineRegex();
 
     public static string BuildU2fLine(SurfaceMode mode, string origin, string authfile)
     {
@@ -34,15 +39,14 @@ public static partial class PamGenerator
     }
 
     public static bool HasMarker(string content) =>
-        content.Split('\n').Any(l => l.Contains(Marker, StringComparison.Ordinal));
+        content.Split('\n').Any(l => ManagedLineRegex().IsMatch(l));
 
-    /// <summary>Detects which mode a service file currently encodes, by our marker line.</summary>
+    /// <summary>Detects which mode a service file currently encodes, by our managed line.</summary>
     public static SurfaceMode DetectMode(string content)
     {
         foreach (var line in content.Split('\n'))
         {
-            if (!line.Contains(Marker, StringComparison.Ordinal)) continue;
-            var m = YubixLineRegex().Match(line);
+            var m = ManagedLineRegex().Match(line);
             if (!m.Success) continue;
             return m.Groups[1].Value == "sufficient" ? SurfaceMode.Passwordless : SurfaceMode.TwoFactor;
         }
@@ -53,7 +57,7 @@ public static partial class PamGenerator
     /// e.g. hand-made configs or chwd's fingerprint-sudo line.</summary>
     public static List<string> ForeignAuthLines(string content) =>
         content.Split('\n')
-            .Where(l => !l.Contains(Marker, StringComparison.Ordinal))
+            .Where(l => !ManagedLineRegex().IsMatch(l))
             .Where(l => !l.TrimStart().StartsWith('#'))
             .Where(l => l.Contains("pam_u2f.so") || l.Contains("pam_fprintd.so"))
             .Select(l => l.Trim())
@@ -68,7 +72,7 @@ public static partial class PamGenerator
     public static string Render(string baseContent, SurfaceMode mode, string u2fLine)
     {
         var lines = baseContent.Replace("\r\n", "\n").Split('\n')
-            .Where(l => !l.Contains(Marker, StringComparison.Ordinal))
+            .Where(l => !ManagedLineRegex().IsMatch(l))
             .ToList();
 
         // Drop a single trailing blank produced by split-on-final-newline.
@@ -81,7 +85,7 @@ public static partial class PamGenerator
             if (idx < 0)
                 throw new UnsupportedLayoutException(
                     "no 'auth include' line found to anchor the pam_u2f entry");
-            lines.Insert(mode == SurfaceMode.Passwordless ? idx : idx + 1, u2fLine);
+            lines.Insert(idx, u2fLine);
         }
 
         var sb = new StringBuilder();

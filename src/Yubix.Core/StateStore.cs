@@ -21,7 +21,7 @@ public static class StateStore
 
     public static void Save(YubixPaths paths, YubixState state)
     {
-        Directory.CreateDirectory(paths.StateDir);
+        Transaction.CreatePrivateDir(paths.StateDir);
         var json = JsonSerializer.Serialize(state,
             new JsonSerializerOptions(Json.Options) { WriteIndented = true });
         Transaction.WriteAtomically(paths.StateFile, json,

@@ -73,7 +73,7 @@ No general-purpose GUI configurator for pam_u2f exists on any toolkit. First mov
 **Audience & promise:** any CachyOS user with a security key. Plug in key → click through wizard → touch key → protected. Zero terminal use. Uninstall/disable restores stock behavior exactly.
 
 **Surfaces & modes (v1):**
-- **Sudo & admin prompts** (`sudo` + `polkit-1` together): Off / **Touch instead of password** (`sufficient`, first line) / **Password + touch, 2FA** (`required`, after `system-auth` include).
+- **Sudo & admin prompts** (`sudo` + `polkit-1` together): Off / **Touch instead of password** (`sufficient`, first line) / **Password + touch, 2FA** (`required`, also before the `system-auth` include — nothing inside the included stack can then short-circuit past the second factor).
 - **Lock screen** (`kde` on 6.7; `kde-u2f` + kscreenlockerrc flip on ≥6.8): Off / Touch instead of password / Password + touch.
 - **Login screen** (`plasmalogin` override): Off / Touch instead of password (with the "press Enter, then touch" explainer). 2FA mode hidden until upstream bug 513560 is confirmed fixed.
 - Per-user enrollment with named keys ("Blue 5C NFC — desk", "Nano — keychain"), backup-key nudge, optional FIDO2 PIN requirement (`pinverification=1`) as the "something you know" factor for strict setups.
@@ -127,7 +127,7 @@ This is the product's soul, in seven layers:
 
 - `sudo` — passwordless: insert **before** `auth include system-auth`:
   `auth sufficient pam_u2f.so authfile=/etc/u2f_mappings origin=pam://linux-login appid=pam://linux-login cue nouserok nodetect # yubix`
-  2FA: same line with `required`, inserted **after** the include (Yubico-documented pattern; Arch's system-auth control flow verified compatible).
+  2FA: same line with `required`, also inserted **before** the include — a `sufficient` entry inside the included stack could otherwise short-circuit auth before our `required` line ever ran. (Yubico documents the after-the-include variant; before-the-include is strictly more robust and behaves identically on Arch's system-auth.)
 - `polkit-1` — create `/etc/pam.d/polkit-1` as vendor copy + the same line (position per mode as above).
 - `plasmalogin` — create `/etc/pam.d/plasmalogin` as vendor copy + `sufficient … nouserok` first line (Arch-wiki-endorsed; passwordless only in v1).
 - Lock screen 6.7 — create `/etc/pam.d/kde` as vendor copy + line. Lock screen ≥6.8 — create `/etc/pam.d/kde-u2f` modeled on the shipped `kde-fingerprint` (with `required`, never `sufficient`, per the Arch wiki's bypass warning for alternative stacks) and set `[Authenticators] Universal2Factor=true` in the user's `kscreenlockerrc`; the 6.8 lock screen then shows its native picker.
