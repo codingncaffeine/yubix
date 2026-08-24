@@ -1,0 +1,98 @@
+#!/bin/sh
+# yubix-pamcheck — post-transaction integrity check, run as root by the
+# zz-yubix-pam-check libalpm hook after any transaction that touched PAM
+# files, pam_u2f, or the polkit agent-helper unit. POSIX sh + coreutils/grep
+# only: it must keep working while dotnet is mid-upgrade or broken.
+#
+# Findings go to /var/lib/yubix/attention (surfaced by the GUI), the journal,
+# and stdout (pacman terminal + pacman.log); a desktop notification is
+# attempted on each logged-in user's session bus. Always exits 0 — a warning
+# must never fail a pacman transaction. Fast and silent when everything is
+# fine (CachyOS's -v4 rebuild churn makes this hook fire often).
+set -u
+
+STATE_DIR="${YUBIX_ROOT:-}/var/lib/yubix"
+SNAP="$STATE_DIR/pamcheck.snapshot"
+ATT="$STATE_DIR/attention"
+MODULE="${YUBIX_PAM_U2F_SO:-/usr/lib/security/pam_u2f.so}"
+RESTORE="${YUBIX_RESTORE:-/usr/bin/yubix-restore}"
+SYSTEMCTL="${YUBIX_PAMCHECK_SYSTEMCTL:-systemctl}"
+# Must stay in sync with PamGenerator.ManagedLineRegex.
+MARKER_RE='^[[:space:]]*auth[[:space:]]+(sufficient|required)[[:space:]]+pam_u2f\.so[[:space:]].*#[[:space:]]*yubix[[:space:]]*$'
+
+FINDINGS=""
+add() { FINDINGS="${FINDINGS}${1}
+"; }
+
+sha() { sha256sum -- "$1" 2>/dev/null | cut -d' ' -f1; }
+
+# --- per-surface checks against the confirmed snapshot ---------------------
+if [ -f "$SNAP" ]; then
+    while IFS="	" read -r svc mode created etc gsha vendor vsha vexisted; do
+        case "$svc" in ""|\#*) continue ;; esac
+        if [ ! -f "$etc" ]; then
+            add "$svc: the Yubix PAM file is gone — key auth is OFF on this surface"
+            continue
+        fi
+        grep -Eq "$MARKER_RE" -- "$etc" \
+            || add "$svc: the Yubix line was lost from $etc (pacnew overwrite?) — key auth is OFF on this surface"
+        [ -f "$etc.pacnew" ] \
+            && add "$svc: $etc.pacnew appeared — merge it, do NOT overwrite (that would drop the Yubix line)"
+        if [ "$vexisted" = "1" ] && [ -n "$vendor" ]; then
+            if [ ! -f "$vendor" ]; then
+                add "$svc: vendor file $vendor disappeared — an update may have renamed this surface"
+            elif [ "$vsha" != "-" ] && [ "$(sha "$vendor")" != "$vsha" ]; then
+                add "$svc: vendor file $vendor changed in an update — the Yubix copy is stale, re-apply in Yubix"
+            fi
+        elif [ "$vexisted" = "0" ] && [ -n "$vendor" ] && [ -f "$vendor" ]; then
+            add "$svc: a package now ships $vendor — the Yubix override is shadowing it"
+        fi
+    done < "$SNAP"
+fi
+
+# --- dangling pam_u2f lines without the module = lockout risk: self-heal ---
+if [ ! -f "$MODULE" ]; then
+    if grep -Eqs "$MARKER_RE" "${YUBIX_ROOT:-}"/etc/pam.d/* 2>/dev/null; then
+        if "$RESTORE" --strip >/dev/null 2>&1; then
+            add "pam_u2f was removed: Yubix stripped its PAM lines so password login keeps working"
+        else
+            add "pam_u2f was removed and Yubix lines remain — run 'yubix-restore --strip' NOW"
+        fi
+    fi
+fi
+
+# --- polkit agent sandbox must keep the pam-u2f drop-in --------------------
+if [ -f "$SNAP" ] && command -v "$SYSTEMCTL" >/dev/null 2>&1; then
+    if "$SYSTEMCTL" cat polkit-agent-helper@.service >/dev/null 2>&1; then
+        "$SYSTEMCTL" cat polkit-agent-helper@.service 2>/dev/null \
+            | grep -q 'PrivateDevices=no' \
+            || add "polkit's auth helper sandbox lost the pam-u2f drop-in — key auth in admin prompts will fail (reinstall pam-u2f)"
+    fi
+fi
+
+# --- report ---------------------------------------------------------------
+if [ -z "$FINDINGS" ]; then
+    rm -f -- "$ATT"
+    exit 0
+fi
+
+printf '%s' "$FINDINGS" > "$ATT"
+printf '%s' "$FINDINGS" | while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    echo "yubix: $line"
+    logger -t yubix -p auth.warning "$line" 2>/dev/null || true
+done
+
+# Desktop notification on each logged-in user's session bus (the CachyOS
+# reboot-required hook idiom; unix sockets work despite the hook's netns).
+for u in $(users 2>/dev/null | tr ' ' '\n' | sort -u); do
+    busctl --machine="${u}@.host" --user call \
+        org.freedesktop.Notifications /org/freedesktop/Notifications \
+        org.freedesktop.Notifications Notify \
+        'susssasa{sv}i' "Yubix" 0 "security-high" \
+        "Yubix: check your key setup" \
+        "A system update affected the YubiKey login setup. Open Yubix for details." \
+        0 0 15000 >/dev/null 2>&1 || true
+done
+
+exit 0

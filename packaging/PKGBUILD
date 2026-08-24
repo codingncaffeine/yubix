@@ -29,6 +29,9 @@ package() {
     install -dm755 "$pkgdir/usr/bin"
     ln -s /usr/lib/yubix/app/yubix "$pkgdir/usr/bin/yubix"
     install -Dm755 data/yubix-restore "$pkgdir/usr/bin/yubix-restore"
+    install -Dm755 data/yubix-pamcheck "$pkgdir/usr/lib/yubix/yubix-pamcheck"
+    install -Dm644 data/zz-yubix-pam-check.hook \
+        "$pkgdir/usr/share/libalpm/hooks/zz-yubix-pam-check.hook"
 
     install -Dm644 data/io.github.codingncaffeine.yubix.policy \
         "$pkgdir/usr/share/polkit-1/actions/io.github.codingncaffeine.yubix.policy"

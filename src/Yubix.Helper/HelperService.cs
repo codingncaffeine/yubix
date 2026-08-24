@@ -76,7 +76,7 @@ public sealed partial class HelperService
 
     // ---------- GetStatus ----------
 
-    public Task<string> GetStatusAsync() => Locked(() =>
+    public Task<string> GetStatusAsync() => Locked(async () =>
     {
         var surfaces = new Dictionary<string, object>();
         foreach (var id in Surfaces.All)
@@ -85,7 +85,8 @@ public sealed partial class HelperService
             var etcPath = _paths.EtcService(service);
             var vendorPath = _paths.VendorService(service);
             string? current = File.Exists(etcPath) ? File.ReadAllText(etcPath) : null;
-            string? baseContent = current ?? (File.Exists(vendorPath) ? File.ReadAllText(vendorPath) : null);
+            string? vendorContent = File.Exists(vendorPath) ? File.ReadAllText(vendorPath) : null;
+            string? baseContent = current ?? vendorContent;
 
             surfaces[id] = new
             {
@@ -95,6 +96,8 @@ public sealed partial class HelperService
                 createdByYubix = _state.CreatedFiles.Contains(etcPath),
                 overrideExists = current is not null,
                 foreign = baseContent is null ? new List<string>() : PamGenerator.ForeignAuthLines(baseContent),
+                drift = Drift.Classify(_state.SurfaceRecords.GetValueOrDefault(id), current, vendorContent),
+                pacnewPresent = File.Exists(etcPath + ".pacnew"),
             };
         }
 
@@ -120,9 +123,77 @@ public sealed partial class HelperService
             keys = _state.Keys,
             surfaces,
             pending = ReadPendingInfo(),
+            attention = ReadAttentionLines(),
+            health = await CheckSystemHealthAsync(),
         };
-        return Task.FromResult(Ok(status));
+        return Ok(status);
     });
+
+    /// <summary>Findings the pacman hook (yubix-pamcheck) left behind after a
+    /// transaction that ran while the app was closed.</summary>
+    private List<string> ReadAttentionLines()
+    {
+        try
+        {
+            if (File.Exists(_paths.AttentionFile))
+                return File.ReadAllLines(_paths.AttentionFile)
+                    .Where(l => l.Trim().Length > 0).Take(20).ToList();
+        }
+        catch { }
+        return new List<string>();
+    }
+
+    private sealed record SystemHealth(
+        bool? PolkitSandboxOk,
+        bool LockscreenNativeU2f,
+        bool PamU2fConfPresent,
+        string? DisplayManagerService,
+        bool DisplayManagerIsPlasmalogin);
+
+    /// <summary>Ways the OS can break key auth without touching a PAM file we
+    /// wrote. Real mode only — none of this exists inside a fake root.</summary>
+    private async Task<SystemHealth?> CheckSystemHealthAsync()
+    {
+        if (_paths.FakeMode) return null;
+
+        // polkit 126+ hard-sandboxes its auth helper; pam_u2f only reaches
+        // /dev/hidraw through pam-u2f's shipped drop-in. A polkit update that
+        // detaches it kills admin-prompt key auth with zero PAM changes.
+        bool? polkitSandboxOk = null;
+        var (exit, unitText, _) = await External.RunAsync(
+            "systemctl", new[] { "cat", "polkit-agent-helper@.service" }, timeoutMs: 10_000);
+        if (exit == 0)
+            polkitSandboxOk = unitText.Contains("PrivateDevices=no") && unitText.Contains("char-hidraw");
+
+        // Plasma 6.8 ships a native lock-screen U2F path (kde-u2f service +
+        // kscreenlockerrc [Authenticators]); our 6.7-style kde override stops
+        // being the intended integration once that lands.
+        var lockscreenNativeU2f = File.Exists(_paths.VendorService("kde-u2f"));
+        var (klExit, klOut, _) = await External.RunAsync(
+            "pacman", new[] { "-Q", "kscreenlocker" }, timeoutMs: 10_000);
+        if (klExit == 0 && ParsePacmanVersion(klOut) is { } klVersion && klVersion >= new Version(6, 8))
+            lockscreenNativeU2f = true;
+
+        // The login-screen PAM service was just renamed once (sddm →
+        // plasmalogin); detect the next rename via the display-manager alias.
+        string? dmService = null;
+        try
+        {
+            var link = new FileInfo("/etc/systemd/system/display-manager.service");
+            if (link.Exists)
+                dmService = Path.GetFileName(link.ResolveLinkTarget(returnFinalTarget: true)?.FullName);
+        }
+        catch { }
+
+        return new SystemHealth(
+            polkitSandboxOk,
+            lockscreenNativeU2f,
+            // pam_u2f 1.4.0's global defaults file can alter options we don't
+            // pin (pinverification, …) underneath our line.
+            PamU2fConfPresent: File.Exists("/etc/security/pam_u2f.conf"),
+            DisplayManagerService: dmService,
+            DisplayManagerIsPlasmalogin: dmService is null or "plasmalogin.service");
+    }
 
     private object? ReadPendingInfo()
     {
@@ -172,6 +243,18 @@ public sealed partial class HelperService
 
             var (u2fVersionOk, u2fVersionDetail) = await CheckPamU2fVersionAsync();
             Check("pam-u2f-version", u2fVersionOk, u2fVersionDetail);
+
+            var health = await CheckSystemHealthAsync();
+            if (health?.PolkitSandboxOk is not null)
+                Check("polkit-sandbox", health.PolkitSandboxOk.Value,
+                    health.PolkitSandboxOk.Value
+                        ? "polkit auth helper can reach the security key (pam-u2f drop-in attached)"
+                        : "polkit's auth helper sandbox is missing the pam-u2f drop-in — key auth in admin prompts would fail (reinstall pam-u2f)",
+                    "warning");
+            if (health?.PamU2fConfPresent == true)
+                Check("pam-u2f-conf", false,
+                    "/etc/security/pam_u2f.conf exists — its global defaults can change unpinned pam_u2f options underneath Yubix's line",
+                    "warning");
 
             var devices = await FidoDevices.ListAsync();
             Check("device", devices.Count > 0,
@@ -468,6 +551,7 @@ public sealed partial class HelperService
 
             if (mode == SurfaceMode.Off)
             {
+                _state.SurfaceRecords.Remove(id);
                 if (!etcExists) continue;
                 if (_state.CreatedFiles.Contains(etcPath))
                 {
@@ -480,8 +564,20 @@ public sealed partial class HelperService
             }
 
             var line = PamGenerator.BuildU2fLine(mode, _state.Origin, _paths.MappingFile);
-            changes.Add(new FileChange(etcPath, PamGenerator.Render(baseContent, mode, line)));
+            var rendered = PamGenerator.Render(baseContent, mode, line);
+            changes.Add(new FileChange(etcPath, rendered));
             if (!etcExists) newlyCreated.Add(etcPath);
+
+            // Baseline for the post-update drift checks: what we derived the
+            // file from and exactly what we wrote.
+            var vendorExists = File.Exists(vendorPath);
+            _state.SurfaceRecords[id] = new SurfaceRecord
+            {
+                Created = !etcExists || _state.CreatedFiles.Contains(etcPath),
+                VendorExisted = vendorExists,
+                VendorSha256 = vendorExists ? Drift.Sha256Hex(File.ReadAllText(vendorPath)) : null,
+                GeneratedSha256 = Drift.Sha256Hex(rendered),
+            };
         }
 
         if (changes.Count == 0)
@@ -535,8 +631,46 @@ public sealed partial class HelperService
         _pending = null;
         if (File.Exists(_paths.PendingFlagFile)) File.Delete(_paths.PendingFlagFile);
         StateStore.Save(_paths, _state);
+        WriteSnapshot();
+        ClearAttention();
         return Task.FromResult(Ok(new { confirmed = true }));
     });
+
+    /// <summary>Shell-parseable twin of the confirmed surface state, for the
+    /// pacman hook (yubix-pamcheck) and `yubix-restore --strip` — neither may
+    /// depend on .NET at hook/uninstall time. Tab-separated columns:
+    /// svc, mode, created, etcPath, generatedSha256, vendorPath, vendorSha256, vendorExisted.</summary>
+    private void WriteSnapshot()
+    {
+        var lines = new List<string>();
+        foreach (var (id, mode) in _state.AppliedModes)
+        {
+            if (mode == SurfaceMode.Off) continue;
+            var service = Surfaces.ServiceFor(id);
+            var rec = _state.SurfaceRecords.GetValueOrDefault(id);
+            lines.Add(string.Join('\t',
+                service,
+                mode == SurfaceMode.Passwordless ? "passwordless" : "twoFactor",
+                rec?.Created == true ? "1" : "0",
+                _paths.EtcService(service),
+                rec?.GeneratedSha256 ?? "-",
+                _paths.VendorService(service),
+                rec?.VendorSha256 ?? "-",
+                rec?.VendorExisted == true ? "1" : "0"));
+        }
+        if (lines.Count == 0)
+        {
+            if (File.Exists(_paths.SnapshotFile)) File.Delete(_paths.SnapshotFile);
+            return;
+        }
+        Transaction.WriteAtomically(_paths.SnapshotFile, string.Join('\n', lines) + "\n",
+            UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
+
+    private void ClearAttention()
+    {
+        if (File.Exists(_paths.AttentionFile)) File.Delete(_paths.AttentionFile);
+    }
 
     public Task<string> RevertAsync(string reason) => Locked(() =>
     {
@@ -603,7 +737,10 @@ public sealed partial class HelperService
         if (File.Exists(_paths.StagedMappingFile)) File.Delete(_paths.StagedMappingFile);
         foreach (var change in changes) _state.CreatedFiles.Remove(change.Dest);
         _state.AppliedModes = Surfaces.All.ToDictionary(s => s, _ => SurfaceMode.Off);
+        _state.SurfaceRecords.Clear();
         StateStore.Save(_paths, _state);
+        WriteSnapshot();
+        ClearAttention();
 
         return Task.FromResult(Ok(new { restored = changes.Count, manifest }));
     });

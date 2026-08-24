@@ -1,0 +1,21 @@
+# After any transaction that touches PAM configuration, the pam_u2f module,
+# or the polkit agent-helper unit, verify the Yubix-managed setup survived
+# (pacnew extraction triggers Path hooks under the original file name, and
+# removals trigger on all owned paths — man alpm-hooks). zz- prefix: run last.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Path
+Target = etc/pam.d/*
+Target = usr/lib/pam.d/*
+Target = usr/lib/security/pam_u2f.so
+Target = etc/security/pam_u2f.conf
+Target = usr/lib/systemd/system/polkit-agent-helper@.service*
+
+[Action]
+Description = Checking YubiKey PAM configuration (yubix)...
+When = PostTransaction
+Exec = /usr/lib/yubix/yubix-pamcheck
+Depends = coreutils
+Depends = grep

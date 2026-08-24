@@ -6,11 +6,16 @@
 # Usage:
 #   yubix-restore --failsafe        revert an unconfirmed apply (boot failsafe)
 #   yubix-restore --last            revert the most recent backup manifest
+#   yubix-restore --strip           remove every Yubix PAM line/override (uninstall)
 #   yubix-restore <manifest.txt>    revert a specific manifest
 set -u
 
 STATE_DIR="${YUBIX_ROOT:-}/var/lib/yubix"
 FLAG="$STATE_DIR/pending-apply"
+
+# The exact shape of a line Yubix manages — must stay in sync with
+# PamGenerator.ManagedLineRegex.
+MARKER_RE='^[[:space:]]*auth[[:space:]]+(sufficient|required)[[:space:]]+pam_u2f\.so[[:space:]].*#[[:space:]]*yubix[[:space:]]*$'
 
 case "${1:-}" in
     --failsafe)
@@ -20,8 +25,41 @@ case "${1:-}" in
     --last)
         MANIFEST=$(ls -1t "$STATE_DIR"/backups/*/manifest.txt 2>/dev/null | head -n1)
         ;;
+    --strip)
+        # Uninstall path (also the pamcheck self-heal when pam_u2f.so is
+        # gone): delete overrides Yubix created, strip Yubix marker lines
+        # from files it edited. Snapshot-driven when available; falls back
+        # to scanning /etc/pam.d. Enrolled key data is left untouched.
+        SNAP="$STATE_DIR/pamcheck.snapshot"
+        strip_file() {
+            f="$1"
+            grep -Eq "$MARKER_RE" -- "$f" || return 0
+            tmp="$f.yubix-strip.$$"
+            grep -Ev "$MARKER_RE" -- "$f" > "$tmp" || true
+            cat -- "$tmp" > "$f" && echo "  stripped $f"
+            rm -f -- "$tmp"
+        }
+        if [ -f "$SNAP" ]; then
+            while IFS="	" read -r svc mode created etc gsha vendor vsha vexisted; do
+                case "$svc" in ""|\#*) continue ;; esac
+                [ -f "$etc" ] || continue
+                if [ "$created" = "1" ]; then
+                    rm -f -- "$etc" && echo "  removed $etc"
+                else
+                    strip_file "$etc"
+                fi
+            done < "$SNAP"
+            rm -f -- "$SNAP"
+        else
+            for f in "${YUBIX_ROOT:-}"/etc/pam.d/*; do
+                [ -f "$f" ] && strip_file "$f"
+            done
+        fi
+        echo "yubix-restore: Yubix PAM lines removed — password authentication everywhere"
+        exit 0
+        ;;
     "")
-        echo "usage: yubix-restore --failsafe | --last | <manifest.txt>" >&2
+        echo "usage: yubix-restore --failsafe | --last | --strip | <manifest.txt>" >&2
         exit 2
         ;;
     *)

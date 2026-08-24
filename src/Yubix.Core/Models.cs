@@ -43,6 +43,18 @@ public sealed class EnrolledKey
     public int CredentialCount { get; set; }
 }
 
+/// <summary>What we knew about a surface at apply time — the baseline the
+/// drift checks compare the live files against after OS updates.</summary>
+public sealed class SurfaceRecord
+{
+    public bool Created { get; set; }
+    public bool VendorExisted { get; set; }
+    /// <summary>sha256 of the vendor file content the override was derived from.</summary>
+    public string? VendorSha256 { get; set; }
+    /// <summary>sha256 of the full file exactly as Yubix wrote it.</summary>
+    public string? GeneratedSha256 { get; set; }
+}
+
 /// <summary>Persisted helper state (/var/lib/yubix/state.json).</summary>
 public sealed class YubixState
 {
@@ -52,6 +64,8 @@ public sealed class YubixState
     /// <summary>/etc/pam.d files that did not exist before Yubix created them
     /// (vendor-shadow overrides). Mode Off deletes these instead of rewriting.</summary>
     public List<string> CreatedFiles { get; set; } = new();
+    /// <summary>Per-surface apply-time baselines for the drift checks, keyed by surface id.</summary>
+    public Dictionary<string, SurfaceRecord> SurfaceRecords { get; set; } = new();
 }
 
 public sealed class ApplyConfig

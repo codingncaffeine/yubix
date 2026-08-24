@@ -23,7 +23,17 @@ public static class HelperDaemon
         await connection.ConnectAsync();
 
         var service = new HelperService(paths);
-        await DBusCalls.RequestNameAsync(connection, BusName);
+        // 1 = DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER. Anything else (with
+        // DO_NOT_QUEUE: 3 = name exists) means another helper is serving —
+        // carrying on would leave this instance answering nobody while
+        // callers reach the other one.
+        var reply = await DBusCalls.RequestNameAsync(connection, BusName);
+        if (reply != 1)
+        {
+            Console.Error.WriteLine(
+                $"yubix-helper: {BusName} is already owned — another yubix-helper is running; exiting");
+            return 1;
+        }
         connection.AddMethodHandler(new ManagerHandler(connection, paths, service));
 
         Console.WriteLine(

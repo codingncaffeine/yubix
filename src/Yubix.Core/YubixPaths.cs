@@ -28,6 +28,12 @@ public sealed class YubixPaths
     public string StateFile => P("/var/lib/yubix/state.json");
     public string BackupsDir => P("/var/lib/yubix/backups");
     public string PendingFlagFile => P("/var/lib/yubix/pending-apply");
+    /// <summary>Shell-parseable twin of the state's surface records, written at
+    /// ConfirmKeep/RestoreDefaults for the pacman hook (yubix-pamcheck) and
+    /// yubix-restore --strip — no .NET needed at hook time.</summary>
+    public string SnapshotFile => P("/var/lib/yubix/pamcheck.snapshot");
+    /// <summary>Findings the pacman hook left for the GUI to surface.</summary>
+    public string AttentionFile => P("/var/lib/yubix/attention");
 
     public string EtcService(string service) => Path.Combine(EtcPamD, service);
     public string VendorService(string service) => Path.Combine(VendorPamD, service);

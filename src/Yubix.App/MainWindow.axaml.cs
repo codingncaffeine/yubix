@@ -106,6 +106,28 @@ public partial class MainWindow : Window
         if (data["pending"] is not null && _overlayState != OverlayState.Countdown)
             Log("warning: an unconfirmed apply is pending — use “Revert last change” to clear it");
 
+        // OS-update watchdog: findings the pacman hook left while the app was
+        // closed, plus live drift/health checks recomputed by the helper.
+        if (data["attention"] is JsonArray attention)
+            foreach (var a in attention)
+                Log("⚠ update check: " + a?.GetValue<string>());
+        if (surfaces is not null)
+            foreach (var kv in surfaces.AsObject())
+            {
+                if (kv.Value?["drift"] is JsonArray drift)
+                    foreach (var flag in drift)
+                        Log($"⚠ {kv.Key}: {Drift.Describe(flag?.GetValue<string>() ?? "")}");
+                if (kv.Value?["pacnewPresent"]?.GetValue<bool>() == true)
+                    Log($"⚠ {kv.Key}: a .pacnew file is waiting in /etc/pam.d — merge it; an overwrite would drop the Yubix line");
+            }
+        var health = data["health"];
+        if (health?["polkitSandboxOk"]?.GetValue<bool>() == false)
+            Log("⚠ polkit's auth helper lost the pam-u2f drop-in — admin-prompt key auth will fail (reinstall pam-u2f)");
+        if (health?["displayManagerIsPlasmalogin"]?.GetValue<bool>() == false)
+            Log($"⚠ the login screen is no longer plasmalogin ({health?["displayManagerService"]?.GetValue<string>()}) — the login surface may not apply to it");
+        if (health?["lockscreenNativeU2f"]?.GetValue<bool>() == true)
+            Log("ℹ this Plasma has native lock-screen key support (kde-u2f) — a future Yubix version will migrate to it");
+
         await RefreshDevicesAsync();
     }
 
