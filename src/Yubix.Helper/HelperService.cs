@@ -196,7 +196,7 @@ public sealed class HelperService
 
         string credential;
         bool simulated = false;
-        if (_paths.FakeMode && !File.Exists("/usr/bin/pamu2fcfg"))
+        if (_paths.FakeMode)
         {
             credential = $"FAKEKH{Guid.NewGuid():N},FAKEPK,es256,+presence";
             simulated = true;

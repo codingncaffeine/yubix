@@ -23,8 +23,8 @@ public static class HelperDaemon
         await connection.ConnectAsync();
 
         var service = new HelperService(paths);
-        connection.AddMethodHandler(new ManagerHandler(connection, paths, service));
         await DBusCalls.RequestNameAsync(connection, BusName);
+        connection.AddMethodHandler(new ManagerHandler(connection, paths, service));
 
         Console.WriteLine(
             $"yubix-helper: serving {BusName} on the {(paths.FakeMode ? "session" : "system")} bus" +
@@ -106,7 +106,10 @@ internal sealed class ManagerHandler : IMethodHandler
 
     private static void ReplyString(MethodContext context, string value)
     {
-        using var writer = context.CreateReplyWriter("s");
+        // Deliberately no `using`: the send is queued asynchronously, and
+        // disposing the writer returns its pooled buffers while the frame is
+        // still in flight, corrupting the message (the bus then drops us).
+        var writer = context.CreateReplyWriter("s");
         writer.WriteString(value);
         context.Reply(writer.CreateMessage());
     }
@@ -135,32 +138,39 @@ internal sealed class ManagerHandler : IMethodHandler
 
 internal static class DBusCalls
 {
+    // MessageWriter is a mutable struct — it must be passed by ref, or the
+    // body gets written into a copy and a header-only (malformed) frame is
+    // sent, which makes the bus drop the connection.
+    private delegate void BodyWriter(ref MessageWriter writer);
+
     public static Task<uint> RequestNameAsync(Connection connection, string name)
-        => CallDBus(connection, "RequestName", writer =>
+        => CallDBus(connection, "RequestName", "su", (ref MessageWriter writer) =>
         {
             writer.WriteString(name);
             writer.WriteUInt32(4); // DBUS_NAME_FLAG_DO_NOT_QUEUE
-        }, "su");
+        });
 
     public static Task<uint> GetPidAsync(Connection connection, string busName)
-        => CallDBus(connection, "GetConnectionUnixProcessID",
-            writer => writer.WriteString(busName), "s");
+        => CallDBus(connection, "GetConnectionUnixProcessID", "s",
+            (ref MessageWriter writer) => writer.WriteString(busName));
 
     public static Task<uint> GetUidAsync(Connection connection, string busName)
-        => CallDBus(connection, "GetConnectionUnixUser",
-            writer => writer.WriteString(busName), "s");
+        => CallDBus(connection, "GetConnectionUnixUser", "s",
+            (ref MessageWriter writer) => writer.WriteString(busName));
 
     private static Task<uint> CallDBus(
-        Connection connection, string member, Action<MessageWriter> writeArgs, string signature)
+        Connection connection, string member, string signature, BodyWriter writeArgs)
     {
-        using var writer = connection.GetMessageWriter();
+        // No `using` on the writer: the send is queued asynchronously and the
+        // pooled buffers must stay alive until it completes.
+        var writer = connection.GetMessageWriter();
         writer.WriteMethodCallHeader(
             destination: "org.freedesktop.DBus",
             path: "/org/freedesktop/DBus",
             @interface: "org.freedesktop.DBus",
             member: member,
             signature: signature);
-        writeArgs(writer);
+        writeArgs(ref writer);
         return connection.CallMethodAsync(
             writer.CreateMessage(),
             static (Message m, object? _) => m.GetBodyReader().ReadUInt32(),

@@ -48,16 +48,34 @@ internal static class PamTestChild
         public IntPtr AppData;
     }
 
-    [DllImport("libpam.so.0", CharSet = CharSet.Ansi)]
+    // Logical library name, mapped by the resolver below. P/Invoke resolves
+    // libraries with an explicit dlopen/dlsym, which BYPASSES LD_PRELOAD — so
+    // in fake mode we must load libpam_wrapper.so directly (it exports the
+    // pam_* symbols and forwards to the real libpam, honoring
+    // PAM_WRAPPER_SERVICE_DIR; this is how its own libpamtest links it too).
+    private const string PamLib = "pam-logical";
+
+    private static void InstallLibraryResolver()
+    {
+        NativeLibrary.SetDllImportResolver(typeof(PamTestChild).Assembly, (name, assembly, path) =>
+        {
+            if (name != PamLib) return IntPtr.Zero;
+            var useWrapper = Environment.GetEnvironmentVariable("PAM_WRAPPER") == "1";
+            return NativeLibrary.Load(useWrapper ? "libpam_wrapper.so.0" : "libpam.so.0",
+                assembly, path);
+        });
+    }
+
+    [DllImport(PamLib, CharSet = CharSet.Ansi)]
     private static extern int pam_start(string service, string user, ref PamConv conv, out IntPtr handle);
 
-    [DllImport("libpam.so.0")]
+    [DllImport(PamLib)]
     private static extern int pam_authenticate(IntPtr handle, int flags);
 
-    [DllImport("libpam.so.0")]
+    [DllImport(PamLib)]
     private static extern int pam_end(IntPtr handle, int status);
 
-    [DllImport("libpam.so.0")]
+    [DllImport(PamLib)]
     private static extern IntPtr pam_strerror(IntPtr handle, int errnum);
 
     private static string? _pin;
@@ -67,6 +85,8 @@ internal static class PamTestChild
 
     public static int Run(string service, string user)
     {
+        InstallLibraryResolver();
+
         // The conversation must never read the wrong per-user config.
         Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", null);
 
