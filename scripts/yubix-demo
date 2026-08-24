@@ -1,0 +1,32 @@
+#!/bin/sh
+# Launch Yubix in fake-root demo mode: your real security key is used, but
+# every file change stays inside a throwaway sandbox — nothing real is touched.
+# Safe to run over and over; each launch starts from a fresh sandbox.
+set -eu
+
+REPO=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+FR="${YUBIX_DEMO_ROOT:-$HOME/yubix-fakeroot}"
+
+# Fresh sandbox each launch keeps the demo deterministic.
+rm -rf "$FR"
+mkdir -p "$FR/etc/pam.d" "$FR/usr/lib/pam.d" "$FR/var/lib/yubix"
+cp /etc/pam.d/sudo "$FR/etc/pam.d/sudo"
+for f in polkit-1 kde plasmalogin; do
+    [ -f "/usr/lib/pam.d/$f" ] && cp "/usr/lib/pam.d/$f" "$FR/usr/lib/pam.d/$f"
+done
+
+HELPER="$REPO/src/Yubix.Helper/bin/Debug/net10.0/yubix-helper"
+APP="$REPO/src/Yubix.App/bin/Debug/net10.0/yubix"
+if [ ! -x "$HELPER" ] || [ ! -x "$APP" ]; then
+    (cd "$REPO" && dotnet build --nologo)
+fi
+
+# A stale helper would keep serving an old sandbox path on the session bus.
+# -x, not -f: pkill -f would match this very script's command line too.
+pkill -x yubix-helper 2>/dev/null || true
+
+YUBIX_ROOT="$FR" "$HELPER" &
+HELPER_PID=$!
+trap 'kill "$HELPER_PID" 2>/dev/null || true' EXIT INT TERM
+sleep 1
+YUBIX_ROOT="$FR" "$APP"
