@@ -74,7 +74,7 @@ internal sealed class ManagerHandler : IMethodHandler
         string result;
         try
         {
-            if (!_paths.FakeMode && !await Polkit.CheckAsync(_connection, sender))
+            if (!_paths.FakeMode && !IsReadOnly(member) && !await Polkit.CheckAsync(_connection, sender))
             {
                 ReplyString(context, HelperService.Err("not authorized (polkit denied)"));
                 return;
@@ -103,6 +103,12 @@ internal sealed class ManagerHandler : IMethodHandler
 
         ReplyString(context, result);
     }
+
+    /// <summary>Read-only queries skip polkit: they change nothing, the bus
+    /// is local-only, and gating them meant an authentication dialog for
+    /// merely opening the app.</summary>
+    private static bool IsReadOnly(string member) =>
+        member is "GetStatus" or "Preflight" or "ListDevices";
 
     private static void ReplyString(MethodContext context, string value)
     {

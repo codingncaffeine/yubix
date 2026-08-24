@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Yubix.Core;
 
 namespace Yubix.Helper;
@@ -7,8 +8,13 @@ namespace Yubix.Helper;
 /// All privileged operations. Serialized behind one gate — the helper serves a
 /// single desktop app; simplicity beats throughput here.
 /// </summary>
-public sealed class HelperService
+public sealed partial class HelperService
 {
+    // The strict shape kills header/mapping injection: no colon, whitespace,
+    // or newline can ever reach a u2f_mappings line or a PAM child argv.
+    [GeneratedRegex(@"^[a-zA-Z_][a-zA-Z0-9._-]{0,31}$")]
+    private static partial Regex UserNameRegex();
+
     private readonly YubixPaths _paths;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -23,6 +29,35 @@ public sealed class HelperService
     {
         _paths = paths;
         _state = StateStore.Load(paths);
+        RecoverPendingOnStartup();
+    }
+
+    /// <summary>A pending-apply flag on disk with no live countdown means a
+    /// previous helper died mid-apply or mid-countdown. The change was never
+    /// confirmed, so revert it NOW instead of stranding it until reboot (the
+    /// boot failsafe remains the backstop if even this fails).</summary>
+    private void RecoverPendingOnStartup()
+    {
+        try
+        {
+            if (!File.Exists(_paths.PendingFlagFile)) return;
+            var manifest = ParseFlag("manifest");
+            if (manifest is null || !File.Exists(manifest))
+            {
+                Console.Error.WriteLine(
+                    "yubix-helper: pending-apply flag found but its manifest is missing — leaving the flag armed");
+                return;
+            }
+            Transaction.Restore(manifest);
+            File.Delete(_paths.PendingFlagFile);
+            _state = StateStore.Load(_paths);
+            Console.WriteLine("yubix-helper: reverted an unconfirmed apply left by a previous helper run");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"yubix-helper: startup revert failed: {ex.Message} (the boot failsafe is still armed)");
+        }
     }
 
     // ---------- result helpers ----------
@@ -135,6 +170,9 @@ public sealed class HelperService
             Check("fido2-token", File.Exists("/usr/bin/fido2-token"),
                 "fido2-token device tool (libfido2 package)");
 
+            var (u2fVersionOk, u2fVersionDetail) = await CheckPamU2fVersionAsync();
+            Check("pam-u2f-version", u2fVersionOk, u2fVersionDetail);
+
             var devices = await FidoDevices.ListAsync();
             Check("device", devices.Count > 0,
                 devices.Count > 0
@@ -206,7 +244,10 @@ public sealed class HelperService
     public Task<string> EnrollAsync(string user, string nickname, string pin) => Locked(async () =>
     {
         if (string.IsNullOrWhiteSpace(user)) return Err("no user given");
+        if (!UserNameRegex().IsMatch(user))
+            return Err($"invalid username '{External.Tail(user, 40)}' (letters, digits, '._-', max 32 chars)");
         nickname = string.IsNullOrWhiteSpace(nickname) ? "Security key" : nickname.Trim();
+        if (nickname.Length > 64) nickname = nickname[..64];
 
         string credential;
         bool simulated = false;
@@ -255,8 +296,13 @@ public sealed class HelperService
     {
         var cfg = Json.Deserialize<SelfTestConfig>(configJson) ?? new SelfTestConfig();
         if (string.IsNullOrWhiteSpace(cfg.User)) return Err("no user given");
+        if (!UserNameRegex().IsMatch(cfg.User)) return Err("invalid username");
 
         var scratch = string.IsNullOrEmpty(cfg.Service);
+        // Only our own surfaces may be live-tested — anything else would turn
+        // the root helper into a generic PAM authentication oracle.
+        if (!scratch && !Surfaces.All.Select(Surfaces.ServiceFor).Contains(cfg.Service))
+            return Err($"self-test is limited to yubix-managed services; '{cfg.Service}' is not one");
         var serviceName = scratch ? YubixPaths.SelfTestServiceName : cfg.Service!;
 
         if (scratch)
@@ -375,24 +421,30 @@ public sealed class HelperService
 
     // ---------- Apply / ConfirmKeep / Revert ----------
 
-    public Task<string> ApplyAsync(string configJson) => Locked(() =>
+    public Task<string> ApplyAsync(string configJson) => Locked(async () =>
     {
         var cfg = Json.Deserialize<ApplyConfig>(configJson) ?? new ApplyConfig();
-        if (cfg.Modes.Count == 0) return Task.FromResult(Err("no surface modes given"));
+        if (cfg.Modes.Count == 0) return Err("no surface modes given");
         if (_pending is not null || File.Exists(_paths.PendingFlagFile))
-            return Task.FromResult(Err("an unconfirmed apply is already in progress — confirm or revert it first"));
+            return Err("an unconfirmed apply is already in progress — confirm or revert it first");
 
         var enablingAnything = cfg.Modes.Values.Any(m => m != SurfaceMode.Off);
         if (enablingAnything && !File.Exists(_paths.MappingFile))
-            return Task.FromResult(Err("no verified key enrollment found — enroll and run the self-test first"));
+            return Err("no verified key enrollment found — enroll and run the self-test first");
+
+        if (enablingAnything && !_paths.FakeMode)
+        {
+            var (versionOk, versionDetail) = await CheckPamU2fVersionAsync();
+            if (!versionOk) return Err(versionDetail);
+        }
 
         foreach (var (id, mode) in cfg.Modes)
         {
             if (!Surfaces.All.Contains(id))
-                return Task.FromResult(Err($"unknown surface '{id}'"));
+                return Err($"unknown surface '{id}'");
             if (!Surfaces.ModeAllowed(id, mode))
-                return Task.FromResult(Err(
-                    "two-factor login screen is disabled until the Plasma Login Manager crash (KDE bug 513560) is fixed upstream"));
+                return Err(
+                    "two-factor login screen is disabled until the Plasma Login Manager crash (KDE bug 513560) is fixed upstream");
         }
 
         var preState = Json.Deserialize<YubixState>(Json.Serialize(_state))!;
@@ -411,7 +463,7 @@ public sealed class HelperService
             if (baseContent is null)
             {
                 if (mode == SurfaceMode.Off) continue;
-                return Task.FromResult(Err($"surface '{id}': PAM service '{service}' not found on this system"));
+                return Err($"surface '{id}': PAM service '{service}' not found on this system");
             }
 
             if (mode == SurfaceMode.Off)
@@ -433,15 +485,20 @@ public sealed class HelperService
         }
 
         if (changes.Count == 0)
-            return Task.FromResult(Err("nothing to change"));
+            return Err("nothing to change");
 
         var countdown = Math.Clamp(cfg.CountdownSeconds, 15, 600);
-        var tx = Transaction.Apply(_paths, changes, "apply");
         var deadline = DateTime.UtcNow.AddSeconds(countdown);
 
+        // The write order IS the safety story: backups + manifest reach disk
+        // first (Prepare), then the pending flag arms the boot failsafe, and
+        // only then are the PAM files touched (Commit). A crash at any point
+        // leaves either untouched files or an armed failsafe that reverts.
+        var tx = Transaction.Prepare(_paths, changes, "apply");
         Transaction.WriteAtomically(_paths.PendingFlagFile,
             $"manifest={tx.ManifestPath}\ndeadline={deadline.ToString("O", CultureInfo.InvariantCulture)}\n",
             UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        Transaction.Commit(changes);
 
         var timer = new Timer(_ => AutoRevert("countdown expired without confirmation"),
             null, countdown * 1000, Timeout.Infinite);
@@ -454,13 +511,13 @@ public sealed class HelperService
             _state.CreatedFiles.Remove(change.Dest);
         // State is saved only on ConfirmKeep — a revert restores preState.
 
-        return Task.FromResult(Ok(new
+        return Ok(new
         {
             deadlineUtc = deadline,
             countdownSeconds = countdown,
             manifest = tx.ManifestPath,
             backupDir = tx.BackupDir,
-        }));
+        });
     });
 
     public Task<string> ConfirmKeepAsync() => Locked(() =>
@@ -550,4 +607,54 @@ public sealed class HelperService
 
         return Task.FromResult(Ok(new { restored = changes.Count, manifest }));
     });
+
+    // ---------- pam-u2f version gate ----------
+
+    /// <summary>pam-u2f older than 1.3.1 predates the CVE-2025-23013 fix, on
+    /// which our `nouserok` lines rely: since 1.3.1 an unenrolled user (or a
+    /// missing/foreign authfile) makes pam_u2f return PAM_IGNORE, falling
+    /// through to the password module — before it, nouserok could short-
+    /// circuit auth entirely. Refuse to enable anything on older modules.</summary>
+    private static async Task<(bool Ok, string Detail)> CheckPamU2fVersionAsync()
+    {
+        var (exit, stdout, _) = await External.RunAsync(
+            "pacman", new[] { "-Q", "pam-u2f" }, timeoutMs: 10_000);
+        if (exit != 0)
+            return (false, "cannot determine the pam-u2f version (pacman -Q pam-u2f failed) — is pam-u2f installed?");
+        var version = ParsePacmanVersion(stdout);
+        if (version is null)
+            return (false, $"cannot parse the pam-u2f version from '{stdout.Trim()}'");
+        return version >= new Version(1, 3, 1)
+            ? (true, $"pam-u2f {version} (has the CVE-2025-23013 nouserok fix from 1.3.1)")
+            : (false, $"pam-u2f {version} is older than 1.3.1 and lacks the CVE-2025-23013 nouserok fix — update pam-u2f first");
+    }
+
+    /// <summary>Parses `pacman -Q name` output ("pam-u2f 1.4.0-1", possibly
+    /// with an epoch like "1:2.0-3") into the upstream version part.</summary>
+    private static Version? ParsePacmanVersion(string pacmanOutput)
+    {
+        var parts = pacmanOutput.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return null;
+        var v = parts[1];
+        var colon = v.IndexOf(':');            // strip the epoch
+        if (colon >= 0) v = v[(colon + 1)..];
+        var dash = v.IndexOf('-');             // strip the pkgrel
+        if (dash >= 0) v = v[..dash];
+
+        var nums = new List<int>();
+        foreach (var seg in v.Split('.'))
+        {
+            var digits = new string(seg.TakeWhile(char.IsAsciiDigit).ToArray());
+            if (digits.Length == 0) break;
+            nums.Add(int.Parse(digits, CultureInfo.InvariantCulture));
+            if (nums.Count == 3) break;
+        }
+        return nums.Count switch
+        {
+            0 => null,
+            1 => new Version(nums[0], 0),
+            2 => new Version(nums[0], nums[1]),
+            _ => new Version(nums[0], nums[1], nums[2]),
+        };
+    }
 }

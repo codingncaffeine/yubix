@@ -40,7 +40,7 @@ public partial class MainWindow : Window
         if (initial)
             Log(_helper.FakeMode
                 ? "fake-root mode: session bus, no real /etc is touched"
-                : "connecting to the Yubix helper (you may be asked to authenticate once)");
+                : "connecting to the Yubix helper (making changes will ask you to authenticate)");
 
         var status = await _helper.CallAsync(m => m.GetStatusAsync());
         if (!status.Ok)
