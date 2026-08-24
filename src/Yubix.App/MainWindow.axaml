@@ -81,6 +81,8 @@
           <Border Classes="card">
             <StackPanel Spacing="16">
               <TextBlock Classes="h2" Text="Where your key is used"/>
+              <TextBlock Classes="muted" TextWrapping="Wrap"
+                         Text="Touch instead of password: a touch signs you in, and your password always keeps working as a fallback — you can never be locked out. Password + touch (2FA): both are required, so a password alone is no longer enough — enroll a backup key before using it."/>
 
               <Grid ColumnDefinitions="*,230,Auto" RowDefinitions="Auto">
                 <StackPanel Spacing="2" VerticalAlignment="Center">

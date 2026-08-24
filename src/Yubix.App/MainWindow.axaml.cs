@@ -10,7 +10,7 @@ namespace Yubix.App;
 
 public partial class MainWindow : Window
 {
-    private enum OverlayState { None, EnrollForm, Touch, Countdown, Message, ConfirmRestore, Busy }
+    private enum OverlayState { None, EnrollForm, Touch, Countdown, Message, ConfirmRestore, ConfirmTwoFactor, Busy }
 
     private readonly HelperClient _helper = new();
     private OverlayState _overlayState = OverlayState.None;
@@ -19,6 +19,8 @@ public partial class MainWindow : Window
     private bool _updatingUi;
     private bool _busy;
     private bool _simulatedDevice;
+    private int _enrolledKeyCount;
+    private Dictionary<string, string>? _pendingModes;
 
     private static readonly IBrush BadgeOnBrush = new SolidColorBrush(Color.Parse("#153A41"));
     private static readonly IBrush BadgeOnText = new SolidColorBrush(Color.Parse("#5BD5E8"));
@@ -64,6 +66,7 @@ public partial class MainWindow : Window
         // Keys
         KeysPanel.Children.Clear();
         var keys = data["keys"] as JsonArray;
+        _enrolledKeyCount = keys?.Count ?? 0;
         if (keys is { Count: > 0 })
         {
             KeysEmptyText.IsVisible = false;
@@ -202,6 +205,27 @@ public partial class MainWindow : Window
             ["login"] = IndexToMode(LoginModeBox.SelectedIndex),
         };
 
+        // 2FA makes the key mandatory on those surfaces — with a single
+        // enrolled key that's a real lockout risk, so demand acknowledgment.
+        if (modes.ContainsValue("twoFactor") && _enrolledKeyCount < 2)
+        {
+            _pendingModes = modes;
+            ShowOverlay(OverlayState.ConfirmTwoFactor,
+                "2FA with a single key — are you sure?",
+                "Password + touch means a password alone will NO LONGER work on those surfaces. " +
+                "With only one enrolled key, losing or breaking it locks them until you recover — " +
+                "TTY login (Ctrl+Alt+F3) always still works with your password, and running " +
+                "“yubix-restore --last” there undoes everything. Enrolling a second backup key " +
+                "first is strongly recommended.",
+                primary: "I understand — apply anyway", secondary: "Cancel");
+            return;
+        }
+
+        await DoApplyAsync(modes);
+    }
+
+    private async Task DoApplyAsync(Dictionary<string, string> modes)
+    {
         SetBusy(true);
         ShowOverlay(OverlayState.Busy, "Applying…",
             "Backing up originals and writing the new PAM configuration.", primary: null, secondary: null);
@@ -263,6 +287,13 @@ public partial class MainWindow : Window
                 HideOverlay();
                 Log(confirm.Ok ? "settings confirmed and kept ✔" : "confirm failed: " + confirm.Error);
                 await RefreshAllAsync();
+                break;
+
+            case OverlayState.ConfirmTwoFactor:
+                var pendingModes = _pendingModes;
+                _pendingModes = null;
+                HideOverlay();
+                if (pendingModes is not null) await DoApplyAsync(pendingModes);
                 break;
 
             case OverlayState.ConfirmRestore:
