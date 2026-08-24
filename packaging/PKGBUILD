@@ -11,7 +11,7 @@ makedepends=('dotnet-sdk')
 options=('!strip')
 install=yubix.install
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('bb67988f220e435c998e7697a8ac9426c48f19aba73ae549da80b4edf121eae7')
 
 build() {
     cd "$pkgname-$pkgver"
