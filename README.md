@@ -54,4 +54,4 @@ Tests: `dotnet test`
 
 ## License
 
-TBD (leaning GPL-3.0-or-later).
+[GPL-3.0-or-later](LICENSE).
