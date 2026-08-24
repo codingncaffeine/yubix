@@ -11,7 +11,7 @@ FR="${YUBIX_DEMO_ROOT:-$HOME/yubix-fakeroot}"
 rm -rf "$FR"
 mkdir -p "$FR/etc/pam.d" "$FR/usr/lib/pam.d" "$FR/var/lib/yubix"
 cp /etc/pam.d/sudo "$FR/etc/pam.d/sudo"
-for f in polkit-1 kde plasmalogin; do
+for f in polkit-1 kde plasmalogin sddm; do
     [ -f "/usr/lib/pam.d/$f" ] && cp "/usr/lib/pam.d/$f" "$FR/usr/lib/pam.d/$f"
 done
 
