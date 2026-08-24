@@ -177,6 +177,7 @@ Sequencing rationale: M2/M3 deliver the full "sudo without lockout risk" experie
 **Open questions (non-blocking, needed by M7):**
 1. License — recommendation: GPL-3.0-or-later (matches CachyOS tooling norms).
 2. LUKS full-disk unlock via `systemd-cryptenroll --fido2-device` as a v2 feature?
+3. v2 "expert mode" for hardened setups (user idea, 2026-08-24): opt-in TTY coverage and failsafe opt-out behind heavy confirmations — deliberately out of v1, whose promise is lockout-impossibility; note 2FA mode already removes the password-alone path on protected surfaces.
 
 ---
 
