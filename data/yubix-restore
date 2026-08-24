@@ -47,11 +47,21 @@ while IFS="	" read -r op dest backup; do
             fi
             ;;
         delete)
-            rm -f -- "$dest" && echo "  removed $dest"
+            if rm -f -- "$dest"; then
+                echo "  removed $dest"
+            else
+                echo "  FAILED to remove $dest" >&2
+                FAIL=1
+            fi
             ;;
     esac
 done < "$MANIFEST"
 
-rm -f -- "$FLAG"
-[ "$FAIL" -eq 0 ] && echo "yubix-restore: done — password authentication restored"
+if [ "$FAIL" -eq 0 ]; then
+    # Disarm the boot failsafe only once everything is truly back.
+    rm -f -- "$FLAG"
+    echo "yubix-restore: done — password authentication restored"
+else
+    echo "yubix-restore: NOT everything was restored — keeping $FLAG armed so the boot failsafe retries" >&2
+fi
 exit "$FAIL"

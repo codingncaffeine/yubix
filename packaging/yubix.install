@@ -1,0 +1,16 @@
+# The boot failsafe is the last line of defense against a lockout: it must be
+# active from the moment the package lands, not after a manual systemctl step.
+# (ConditionPathExists keeps it inert unless an apply was left unconfirmed.)
+
+post_install() {
+    systemctl enable yubix-failsafe.service >/dev/null 2>&1 || true
+    echo ":: yubix boot failsafe enabled (reverts unconfirmed login changes at boot)"
+}
+
+post_upgrade() {
+    post_install
+}
+
+pre_remove() {
+    systemctl disable yubix-failsafe.service >/dev/null 2>&1 || true
+}

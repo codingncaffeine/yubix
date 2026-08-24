@@ -11,6 +11,7 @@ license=('LicenseRef-TBD')
 depends=('dotnet-runtime' 'pam-u2f' 'libfido2' 'polkit')
 makedepends=('dotnet-sdk')
 options=('!strip')
+install=yubix.install
 
 build() {
     cd "$startdir/.."
