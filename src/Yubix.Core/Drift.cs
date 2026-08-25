@@ -57,7 +57,7 @@ public static class Drift
     public static string Describe(string flag) => flag switch
     {
         "overrideMissing" => "the PAM file Yubix wrote no longer exists — key auth is off for this surface",
-        "markerLost" => "the Yubix line is gone from the PAM file (a pacnew overwrite?) — key auth is off for this surface",
+        "markerLost" => "the Yubix line is gone from the PAM file — an update overwrote it, or it was removed or commented out by hand; key auth is off for this surface",
         "thirdPartyEdit" => "the PAM file was edited outside Yubix (Yubix will not auto-touch it)",
         "orphanedOverride" => "the vendor PAM file this was based on has disappeared — the surface may have been renamed by an update",
         "vendorDrift" => "the vendor PAM file changed in an update; the Yubix copy is stale — re-apply to pick up the new base",

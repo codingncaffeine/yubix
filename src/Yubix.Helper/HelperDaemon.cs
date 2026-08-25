@@ -84,7 +84,7 @@ internal sealed class ManagerHandler : IMethodHandler
         string result;
         try
         {
-            if (!_paths.FakeMode && !IsReadOnly(member) && !await Polkit.CheckAsync(_connection, sender))
+            if (!_paths.FakeMode && !SkipsPolkit(member) && !await Polkit.CheckAsync(_connection, sender))
             {
                 ReplyString(context, HelperService.Err("not authorized (polkit denied)"));
                 return;
@@ -104,6 +104,7 @@ internal sealed class ManagerHandler : IMethodHandler
                 "ConfirmKeep" => await _service.ConfirmKeepAsync(),
                 "Revert" => await _service.RevertAsync("user request"),
                 "RestoreDefaults" => await _service.RestoreDefaultsAsync(),
+                "AcknowledgeAttention" => await _service.AcknowledgeAttentionAsync(),
                 _ => HelperService.Err($"unknown method '{member}'"),
             };
         }
@@ -115,11 +116,15 @@ internal sealed class ManagerHandler : IMethodHandler
         ReplyString(context, result);
     }
 
-    /// <summary>Read-only queries skip polkit: they change nothing, the bus
-    /// is local-only, and gating them meant an authentication dialog for
-    /// merely opening the app.</summary>
-    private static bool IsReadOnly(string member) =>
-        member is "GetStatus" or "Preflight" or "ListDevices";
+    /// <summary>Members that skip polkit: they touch no PAM file, no key and
+    /// no backup, the bus is local-only, and gating them meant an
+    /// authentication dialog for merely opening the app. AcknowledgeAttention
+    /// does write — it deletes the notice file — but only discards a message
+    /// the caller was just shown, and the same findings are also in the
+    /// journal and pacman's log, so there is nothing to gain by suppressing
+    /// them here.</summary>
+    private static bool SkipsPolkit(string member) =>
+        member is "GetStatus" or "Preflight" or "ListDevices" or "AcknowledgeAttention";
 
     private static void ReplyString(MethodContext context, string value)
     {
@@ -152,6 +157,7 @@ internal sealed class ManagerHandler : IMethodHandler
             <method name="ConfirmKeep"><arg type="s" direction="out"/></method>
             <method name="Revert"><arg type="s" direction="out"/></method>
             <method name="RestoreDefaults"><arg type="s" direction="out"/></method>
+            <method name="AcknowledgeAttention"><arg type="s" direction="out"/></method>
           </interface>
         </node>
         """;

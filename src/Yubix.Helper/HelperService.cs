@@ -751,6 +751,15 @@ public sealed partial class HelperService
             UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
+    /// <summary>Drops the pacman hook's findings once the app has displayed
+    /// them. Live problems are re-derived from the files on every GetStatus,
+    /// so this only discards the courier, never a current warning.</summary>
+    public Task<string> AcknowledgeAttentionAsync() => Locked(() =>
+    {
+        ClearAttention();
+        return Task.FromResult(Ok(new { acknowledged = true }));
+    });
+
     private void ClearAttention()
     {
         if (File.Exists(_paths.AttentionFile)) File.Delete(_paths.AttentionFile);

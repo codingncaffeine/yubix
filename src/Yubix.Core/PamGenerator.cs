@@ -5,7 +5,7 @@ namespace Yubix.Core;
 
 /// <summary>
 /// Generates and recognizes the single PAM line Yubix manages per service.
-/// Strategy (see docs/PLAN.md §5): both modes insert BEFORE the service's
+/// Strategy: both modes insert BEFORE the service's
 /// `auth include` line — passwordless as `sufficient`, 2FA as `required`.
 /// Inserting the required line first means nothing inside the included stack
 /// (a `sufficient` entry, say) can ever short-circuit past the second factor.

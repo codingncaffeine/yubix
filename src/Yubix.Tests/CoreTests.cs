@@ -125,7 +125,7 @@ public class PamGeneratorTests
         var v1 = PamGenerator.Render(SudoBase, SurfaceMode.Passwordless, Line(SurfaceMode.Passwordless));
         var v2 = PamGenerator.Render(v1, SurfaceMode.TwoFactor, Line(SurfaceMode.TwoFactor));
         var v3 = PamGenerator.Render(v2, SurfaceMode.Off, "");
-        Assert.Single(v2.Split('\n').Where(l => l.Contains("pam_u2f.so")));
+        Assert.Single(v2.Split('\n'), l => l.Contains("pam_u2f.so"));
         Assert.DoesNotContain("pam_u2f.so", v3);
         Assert.Equal(PamGenerator.Render(SudoBase, SurfaceMode.Off, ""), v3);
     }
@@ -274,7 +274,7 @@ public class PamGeneratorTests
             "auth\trequired\tpam_u2f.so authfile=/older origin=o appid=o cue  #  yubix\n" +
             SudoBase + "\n";
         var result = PamGenerator.Render(stale, SurfaceMode.Passwordless, Line(SurfaceMode.Passwordless));
-        Assert.Single(result.Split('\n').Where(l => l.Contains("pam_u2f.so")));
+        Assert.Single(result.Split('\n'), l => l.Contains("pam_u2f.so"));
     }
 
     [Fact]

@@ -36,6 +36,13 @@ public partial class MainWindow : Window
         Opened += async (_, _) => await RefreshAllAsync(initial: true);
     }
 
+    protected override void OnClosed(EventArgs e)
+    {
+        // Before the dispatcher stops, not after: see HelperClient.Disconnect.
+        _helper.Disconnect();
+        base.OnClosed(e);
+    }
+
     // ---------- data refresh ----------
 
     private async Task RefreshAllAsync(bool initial = false)
@@ -130,9 +137,16 @@ public partial class MainWindow : Window
 
         // OS-update watchdog: findings the pacman hook left while the app was
         // closed, plus live drift/health checks recomputed by the helper.
-        if (data["attention"] is JsonArray attention)
+        if (data["attention"] is JsonArray attention && attention.Count > 0)
+        {
             foreach (var a in attention)
                 Log("⚠ update check: " + a?.GetValue<string>());
+            // Delivered — drop them, so a finding the user has already dealt
+            // with doesn't reappear at every launch. Nothing is lost: anything
+            // still wrong is recomputed below from the live files, not read
+            // back out of this file.
+            await _helper.CallAsync(m => m.AcknowledgeAttentionAsync());
+        }
         if (surfaces is not null)
             foreach (var kv in surfaces.AsObject())
             {

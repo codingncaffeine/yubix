@@ -42,7 +42,7 @@ if [ -f "$SNAP" ]; then
             continue
         fi
         grep -Eq "$MARKER_RE" -- "$etc" \
-            || add "$svc: the Yubix line was lost from $etc (pacnew overwrite?) — key auth is OFF on this surface"
+            || add "$svc: the Yubix line is no longer in $etc — an update overwrote it, or it was removed or commented out by hand; key auth is OFF on this surface"
         [ -f "$etc.pacnew" ] \
             && add "$svc: $etc.pacnew appeared — merge it, do NOT overwrite (that would drop the Yubix line)"
         if [ "$vexisted" = "1" ] && [ -n "$vendor" ]; then

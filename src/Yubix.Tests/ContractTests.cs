@@ -523,7 +523,10 @@ public class StripAndPamcheckTests
             Assert.True(exit == 0, output); // warnings must never fail a transaction
             Assert.True(File.Exists(paths.AttentionFile), output);
             var attention = File.ReadAllText(paths.AttentionFile);
-            Assert.Contains("sudo: the Yubix line was lost", attention);
+            Assert.Contains("sudo: the Yubix line is no longer in", attention);
+            // The cause is not knowable from the file alone, so the wording
+            // must offer a hand edit alongside an update overwriting it.
+            Assert.Contains("removed or commented out by hand", attention);
             Assert.Contains("sudo.pacnew appeared", attention);
             Assert.Contains("kde: vendor file", attention);
         }
