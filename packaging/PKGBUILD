@@ -1,6 +1,6 @@
 # Maintainer: codingncaffeine
 pkgname=yubix
-pkgver=0.0.5
+pkgver=0.0.6
 pkgrel=1
 pkgdesc="Use your YubiKey for login and sudo — safely, with no terminal"
 arch=('x86_64')
