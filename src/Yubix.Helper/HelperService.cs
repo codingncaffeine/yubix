@@ -91,6 +91,12 @@ public sealed partial class HelperService
 
     private string ResolveLoginService() => Surfaces.ResolveLoginService(_paths, ReadDmUnit());
 
+    /// <summary>True while an applied change is waiting to be confirmed. The
+    /// idle exit must not fire in that window: the countdown owns the
+    /// auto-revert timer, and dropping it would leave an unconfirmed change
+    /// standing until the boot failsafe caught it at the next reboot.</summary>
+    public bool HasPendingApply => _pending is not null;
+
     public Task<string> GetStatusAsync() => Locked(async () =>
     {
         var loginService = ResolveLoginService();

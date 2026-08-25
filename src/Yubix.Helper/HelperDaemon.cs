@@ -34,14 +34,86 @@ public static class HelperDaemon
                 $"yubix-helper: {BusName} is already owned — another yubix-helper is running; exiting");
             return 1;
         }
-        connection.AddMethodHandler(new ManagerHandler(connection, paths, service));
+        // No idle exit under a fake root: that helper is started by hand, not
+        // bus-activated, so exiting would strand the app with nothing to
+        // reconnect to.
+        var idle = paths.FakeMode ? null : new IdleExit(service);
+        connection.AddMethodHandler(new ManagerHandler(connection, paths, service, idle));
 
         Console.WriteLine(
             $"yubix-helper: serving {BusName} on the {(paths.FakeMode ? "session" : "system")} bus" +
             (paths.FakeMode ? $" (fake root: {paths.Root})" : ""));
 
-        await Task.Delay(Timeout.Infinite);
+        if (idle is null)
+        {
+            await Task.Delay(Timeout.Infinite);
+            return 0;
+        }
+
+        await idle.WaitAsync();
+        Console.WriteLine(
+            "yubix-helper: idle — exiting; D-Bus starts it again on the next call");
         return 0;
+    }
+}
+
+/// <summary>
+/// Ends the process once it has been idle long enough. A root service that can
+/// rewrite PAM files otherwise stays resident for the rest of the machine's
+/// uptime after a single status read, which is not what bus activation is for.
+/// Restarting is the bus's job and callers never see it happen.
+///
+/// It is not a security boundary — anything that can talk to the bus can start
+/// the helper again. What it buys is a process that cannot stay wedged
+/// (a stuck call or child would otherwise persist until reboot) and does not
+/// idle in memory for hours.
+/// </summary>
+internal sealed class IdleExit
+{
+    private static readonly TimeSpan Window = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan CheckEvery = TimeSpan.FromMinutes(1);
+
+    private readonly HelperService _service;
+    private readonly TaskCompletionSource _done =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Timer _timer;
+    private long _lastActivityTicks = DateTime.UtcNow.Ticks;
+    private int _inFlight;
+
+    public IdleExit(HelperService service)
+    {
+        _service = service;
+        _timer = new Timer(_ => Check(), null, CheckEvery, CheckEvery);
+    }
+
+    public Task WaitAsync() => _done.Task;
+
+    public void CallStarted()
+    {
+        Interlocked.Increment(ref _inFlight);
+        Touch();
+    }
+
+    public void CallFinished()
+    {
+        Interlocked.Decrement(ref _inFlight);
+        Touch();
+    }
+
+    private void Touch() => Interlocked.Exchange(ref _lastActivityTicks, DateTime.UtcNow.Ticks);
+
+    private void Check()
+    {
+        // A call in flight can be an enrollment waiting on a touch, which
+        // legitimately takes half a minute of doing nothing.
+        if (Volatile.Read(ref _inFlight) > 0) return;
+        if (_service.HasPendingApply) return;
+
+        var last = new DateTime(Interlocked.Read(ref _lastActivityTicks), DateTimeKind.Utc);
+        if (DateTime.UtcNow - last < Window) return;
+
+        _timer.Dispose();
+        _done.TrySetResult();
     }
 }
 
@@ -50,12 +122,15 @@ internal sealed class ManagerHandler : IMethodHandler
     private readonly Connection _connection;
     private readonly YubixPaths _paths;
     private readonly HelperService _service;
+    private readonly IdleExit? _idle;
 
-    public ManagerHandler(Connection connection, YubixPaths paths, HelperService service)
+    public ManagerHandler(Connection connection, YubixPaths paths, HelperService service,
+        IdleExit? idle = null)
     {
         _connection = connection;
         _paths = paths;
         _service = service;
+        _idle = idle;
     }
 
     public string Path => HelperDaemon.ObjectPath;
@@ -63,6 +138,21 @@ internal sealed class ManagerHandler : IMethodHandler
     public bool RunMethodHandlerSynchronously(Message message) => false;
 
     public async ValueTask HandleMethodAsync(MethodContext context)
+    {
+        // Counts for the idle clock even when the call turns out to be a probe
+        // or an unknown member: someone is talking to us either way.
+        _idle?.CallStarted();
+        try
+        {
+            await DispatchAsync(context);
+        }
+        finally
+        {
+            _idle?.CallFinished();
+        }
+    }
+
+    private async ValueTask DispatchAsync(MethodContext context)
     {
         var request = context.Request;
         string iface = request.InterfaceAsString ?? "";

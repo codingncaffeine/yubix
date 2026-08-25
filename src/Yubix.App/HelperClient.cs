@@ -82,15 +82,20 @@ public sealed class HelperClient
         }
         catch (Exception ex)
         {
-            _manager = null;
-            _connection?.Dispose();
-            _connection = null;
+            Drop();
             return HelperResult.Failure(ex.Message);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private void Drop()
+    {
+        _manager = null;
+        try { _connection?.Dispose(); } catch { }
+        _connection = null;
     }
 
     /// <summary>
@@ -108,10 +113,5 @@ public sealed class HelperClient
     /// lost. Disabling UseDBusFilePicker/UseDBusMenu does not help either,
     /// because DBusPlatformSettings connects regardless.
     /// </summary>
-    public void Disconnect()
-    {
-        _manager = null;
-        try { _connection?.Dispose(); } catch { }
-        _connection = null;
-    }
+    public void Disconnect() => Drop();
 }
