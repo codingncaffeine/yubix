@@ -9,11 +9,29 @@ FR="${YUBIX_DEMO_ROOT:-$HOME/yubix-fakeroot}"
 
 # Fresh sandbox each launch keeps the demo deterministic.
 rm -rf "$FR"
-mkdir -p "$FR/etc/pam.d" "$FR/usr/lib/pam.d" "$FR/var/lib/yubix"
-cp /etc/pam.d/sudo "$FR/etc/pam.d/sudo"
-for f in polkit-1 kde plasmalogin sddm; do
-    [ -f "/usr/lib/pam.d/$f" ] && cp "/usr/lib/pam.d/$f" "$FR/usr/lib/pam.d/$f"
+mkdir -p "$FR/etc/pam.d" "$FR/usr/lib/pam.d" "$FR/var/lib/yubix" "$FR/etc/systemd/system"
+
+# Mirror each service from whichever directory really holds it. Distros split
+# these differently -- sddm and sudo are package-owned files in /etc/pam.d,
+# while polkit-1, kde and plasmalogin are /usr/lib vendor files -- and the demo
+# only exercises the real code paths if the sandbox reproduces that split.
+for f in sudo polkit-1 kde plasmalogin sddm; do
+    if [ -f "/etc/pam.d/$f" ]; then
+        cp "/etc/pam.d/$f" "$FR/etc/pam.d/$f"
+    fi
+    if [ -f "/usr/lib/pam.d/$f" ]; then
+        cp "/usr/lib/pam.d/$f" "$FR/usr/lib/pam.d/$f"
+    fi
 done
+
+# The login surface is resolved from the display-manager alias; without it the
+# helper falls back to probing and can land on a service this machine does not
+# actually use (on a stock EndeavourOS box that means the login screen shows up
+# as unavailable even though sddm is right there).
+DM_LINK=/etc/systemd/system/display-manager.service
+if [ -L "$DM_LINK" ]; then
+    ln -sf "$(readlink "$DM_LINK")" "$FR$DM_LINK"
+fi
 
 HELPER="$REPO/src/Yubix.Helper/bin/Debug/net10.0/yubix-helper"
 APP="$REPO/src/Yubix.App/bin/Debug/net10.0/yubix"

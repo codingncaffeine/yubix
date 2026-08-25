@@ -31,7 +31,14 @@ if [ -f "$SNAP" ]; then
     while IFS="	" read -r svc mode created etc gsha vendor vsha vexisted; do
         case "$svc" in ""|\#*) continue ;; esac
         if [ ! -f "$etc" ]; then
-            add "$svc: the Yubix PAM file is gone — key auth is OFF on this surface"
+            if [ -f "$etc.pacsave" ]; then
+                # The package stopped owning this path — almost always an
+                # /etc -> /usr/lib vendor-dir migration. The vendor file now
+                # serves the surface and our line is parked in the .pacsave.
+                add "$svc: $etc became $etc.pacsave — the package moved this PAM file (likely to /usr/lib/pam.d); key auth is OFF until you re-apply in Yubix"
+            else
+                add "$svc: the Yubix PAM file is gone — key auth is OFF on this surface"
+            fi
             continue
         fi
         grep -Eq "$MARKER_RE" -- "$etc" \
@@ -45,7 +52,7 @@ if [ -f "$SNAP" ]; then
                 add "$svc: vendor file $vendor changed in an update — the Yubix copy is stale, re-apply in Yubix"
             fi
         elif [ "$vexisted" = "0" ] && [ -n "$vendor" ] && [ -f "$vendor" ]; then
-            add "$svc: a package now ships $vendor — the Yubix override is shadowing it"
+            add "$svc: a package now ships $vendor — the file in /etc/pam.d shadows it, so the new vendor version is not in use"
         fi
     done < "$SNAP"
 fi

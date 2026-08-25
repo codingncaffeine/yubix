@@ -93,6 +93,42 @@ public static partial class PamGenerator
         return sb.ToString();
     }
 
+    // Any auth-stack line, including the leading-dash "ignore a missing
+    // module" form the desktops use for their wallet helpers.
+    [GeneratedRegex(@"^\s*-?auth\s+\S", RegexOptions.Compiled)]
+    private static partial Regex AuthLineRegex();
+
+    private static readonly string[] WalletHelpers =
+        { "pam_gnome_keyring.so", "pam_kwallet5.so", "pam_kwallet.so" };
+
+    /// <summary>
+    /// Wallet/keyring helpers sitting after the anchor, which a passwordless
+    /// line silently skips: `sufficient` returns from the auth stack the
+    /// instant the key is accepted, so nothing below it runs. That is
+    /// user-visible — those modules unlock the wallet with the password the
+    /// user no longer types, so it stays locked for the session. Two-factor
+    /// mode is unaffected; a `required` line lets the stack carry on.
+    /// Reported, never repaired: moving our line below the anchor would let a
+    /// `sufficient` entry inside the included stack short-circuit past the
+    /// second factor, which is the whole reason for the ordering.
+    /// </summary>
+    public static List<string> ShortCircuitedHelpers(string content)
+    {
+        var lines = content.Replace("\r\n", "\n").Split('\n');
+        var found = new List<string>();
+        var anchor = Array.FindIndex(lines, l => AuthIncludeRegex().IsMatch(l));
+        if (anchor < 0) return found;
+
+        for (var i = anchor; i < lines.Length; i++)
+        {
+            if (!AuthLineRegex().IsMatch(lines[i])) continue;
+            foreach (var helper in WalletHelpers)
+                if (lines[i].Contains(helper) && !found.Contains(helper))
+                    found.Add(helper);
+        }
+        return found;
+    }
+
     /// <summary>Scratch service used for the pre-apply live self-test. Contains
     /// only pam_u2f — it cannot lock anything and never touches faillock.</summary>
     public static string RenderSelfTestService(string origin, string authfile) =>

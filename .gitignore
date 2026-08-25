@@ -14,3 +14,4 @@ packaging/src/
 packaging/pkg/
 packaging/*.pkg.tar.zst
 packaging/*.log
+packaging/*.tar.gz

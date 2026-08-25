@@ -61,7 +61,7 @@ public static class Drift
         "thirdPartyEdit" => "the PAM file was edited outside Yubix (Yubix will not auto-touch it)",
         "orphanedOverride" => "the vendor PAM file this was based on has disappeared — the surface may have been renamed by an update",
         "vendorDrift" => "the vendor PAM file changed in an update; the Yubix copy is stale — re-apply to pick up the new base",
-        "vendorAppeared" => "a package now ships a vendor file for this surface that the Yubix override is shadowing",
+        "vendorAppeared" => "a package now ships a vendor file for this surface — the file in /etc/pam.d shadows it, so the new vendor version is not in use",
         _ => flag,
     };
 }

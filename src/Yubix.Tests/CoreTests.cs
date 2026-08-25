@@ -33,6 +33,42 @@ public class PamGeneratorTests
         session     include     system-login
         """;
 
+    // Captured from a stock EndeavourOS install (sddm 0.21.0-7, 2026-08).
+    // Unlike plasmalogin this is a package-owned file in /etc/pam.d, so Yubix
+    // edits it in place instead of shadowing a vendor copy — the rendered
+    // result must still be identical.
+    private const string SddmBase = """
+        #%PAM-1.0
+
+        auth        include     system-login
+        -auth       optional    pam_gnome_keyring.so
+        -auth       optional    pam_kwallet5.so
+
+        account     include     system-login
+
+        password    include     system-login
+        -password   optional    pam_gnome_keyring.so    use_authtok
+
+        session     optional    pam_keyinit.so          force revoke
+        session     include     system-login
+        -session    optional    pam_gnome_keyring.so    auto_start
+        -session    optional    pam_kwallet5.so         auto_start
+        """;
+
+    // Captured from Arch's lightdm 1:1.33.1-1 — the login service on the
+    // EndeavourOS Xfce4/i3/Budgie/Cinnamon/MATE editions.
+    private const string LightdmBase = """
+        #%PAM-1.0
+        auth        include     system-login
+        -auth       optional    pam_gnome_keyring.so
+        -auth       optional    pam_kwallet5.so
+        account     include     system-login
+        password    include     system-login
+        session     include     system-login
+        -session    optional    pam_gnome_keyring.so auto_start
+        -session    optional    pam_kwallet5.so auto_start
+        """;
+
     private const string Origin = "pam://linux-login";
     private const string Authfile = "/etc/u2f_mappings";
 
@@ -124,6 +160,68 @@ public class PamGeneratorTests
 
         var ours = PamGenerator.Render(SudoBase, SurfaceMode.Passwordless, Line(SurfaceMode.Passwordless));
         Assert.Empty(PamGenerator.ForeignAuthLines(ours));
+    }
+
+    [Fact]
+    public void WalletHelpersAfterTheAnchorAreReported()
+    {
+        // Both desktops hang their wallet helper off the auth stack after the
+        // include, so a passwordless line returns before it runs.
+        var eos = PamGenerator.ShortCircuitedHelpers(SddmBase);
+        Assert.Equal(new[] { "pam_gnome_keyring.so", "pam_kwallet5.so" }, eos);
+
+        // Same finding on the CachyOS layout: this is not distro-specific,
+        // it is a property of how the desktops write their auth stack.
+        Assert.Equal(eos, PamGenerator.ShortCircuitedHelpers(PlasmaloginBase));
+
+        // sudo has no wallet helper at all.
+        Assert.Empty(PamGenerator.ShortCircuitedHelpers(SudoBase));
+
+        // Only auth-stack lines can be short-circuited by an auth insertion:
+        // a password-phase keyring line must not be reported.
+        Assert.Empty(PamGenerator.ShortCircuitedHelpers(
+            "auth include system-login\n-password optional pam_gnome_keyring.so use_authtok\n"));
+    }
+
+    [Fact]
+    public void LoginSurfaceRendersIdenticallyOnBothDistroLayouts()
+    {
+        // The EndeavourOS login file lives in /etc and the CachyOS one in
+        // /usr/lib, but the generator sees only content: same anchor, same
+        // insertion point, same managed line, and the base is left untouched
+        // apart from that one line.
+        foreach (var (name, basis) in new[] { ("sddm", SddmBase), ("plasmalogin", PlasmaloginBase) })
+        {
+            var rendered = PamGenerator.Render(
+                basis, SurfaceMode.Passwordless, Line(SurfaceMode.Passwordless));
+            var lines = rendered.Split('\n');
+            var ours = Array.FindIndex(lines, l => l.Contains("pam_u2f.so"));
+            Assert.True(ours >= 0, $"{name}: no managed line was inserted");
+            Assert.Contains("system-login", lines[ours + 1]);
+            Assert.Equal(SurfaceMode.Passwordless, PamGenerator.DetectMode(rendered));
+
+            // Everything except our line is byte-identical to the original.
+            var withoutOurs = string.Join("\n", lines.Where(l => !l.Contains("pam_u2f.so")));
+            Assert.Equal(basis.TrimEnd('\n') + "\n", withoutOurs);
+        }
+    }
+
+    [Fact]
+    public void LightdmIsHandledLikeTheOtherLoginServices()
+    {
+        var rendered = PamGenerator.Render(
+            LightdmBase, SurfaceMode.Passwordless, Line(SurfaceMode.Passwordless));
+        var lines = rendered.Split('\n');
+        var ours = Array.FindIndex(lines, l => l.Contains("pam_u2f.so"));
+        Assert.True(ours >= 0);
+        Assert.Contains("auth", lines[ours + 1]);
+        Assert.Contains("system-login", lines[ours + 1]);
+        Assert.Equal(SurfaceMode.Passwordless, PamGenerator.DetectMode(rendered));
+
+        // Same wallet caveat as sddm and plasmalogin.
+        Assert.Equal(
+            new[] { "pam_gnome_keyring.so", "pam_kwallet5.so" },
+            PamGenerator.ShortCircuitedHelpers(LightdmBase));
     }
 
     [Fact]

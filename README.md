@@ -4,7 +4,7 @@
 
 # Yubix
 
-**Use your YubiKey (or any FIDO2 security key) for login and sudo on CachyOS — safely, with zero terminal work.**
+**Use your YubiKey (or any FIDO2 security key) for login and sudo on Linux — safely, with zero terminal work.**
 
 Setting up a security key for Linux login normally means hand-editing PAM files where a single typo locks you out of your own machine. Yubix replaces all of that with a dark, native desktop app and an obsessive safety net.
 
@@ -25,12 +25,12 @@ Setting up a security key for Linux login normally means hand-editing PAM files 
 
 | Component | What it is |
 |---|---|
-| `yubix` | Avalonia UI (.NET 10) desktop app — dark graphite + CachyOS teal |
+| `yubix` | Avalonia UI (.NET 10) desktop app — dark graphite + teal |
 | `yubix-helper` | Root D-Bus service (`io.github.codingncaffeine.yubix`), polkit-authorized; owns all `/etc` writes, enrollment, PAM self-tests, backups, and the revert deadline |
 | `Yubix.Core` | Shared PAM generator/transaction engine (fully unit-tested) |
 | `yubix-restore` | Dependency-free shell script that replays backup manifests |
 
-PAM strategy: vendor files in `/usr/lib/pam.d/` are shadowed with override files in `/etc/pam.d/` (revert = delete); `/etc/pam.d/sudo` gets a single marker-tagged line (the same idiom CachyOS's `chwd` uses). `system-auth` is never touched. Full details in [docs/PLAN.md](docs/PLAN.md).
+PAM strategy: vendor files in `/usr/lib/pam.d/` are shadowed with override files in `/etc/pam.d/` (revert = delete). Services a distro ships directly in `/etc/pam.d/` instead — `sudo` everywhere, and the login service on distros using SDDM — get a single marker-tagged line inserted in place (revert = strip the line; the same idiom CachyOS's `chwd` uses). `system-auth` is never touched. Full details in [docs/PLAN.md](docs/PLAN.md).
 
 ## Demo vs. the real thing
 
@@ -69,9 +69,16 @@ Manual equivalent, if you'd rather drive it yourself:
 
 ```sh
 export YUBIX_ROOT=$HOME/yubix-fakeroot
-mkdir -p $YUBIX_ROOT/etc/pam.d $YUBIX_ROOT/usr/lib/pam.d $YUBIX_ROOT/var/lib/yubix
-cp /etc/pam.d/sudo $YUBIX_ROOT/etc/pam.d/
-cp /usr/lib/pam.d/{polkit-1,kde,plasmalogin} $YUBIX_ROOT/usr/lib/pam.d/
+mkdir -p $YUBIX_ROOT/etc/pam.d $YUBIX_ROOT/usr/lib/pam.d $YUBIX_ROOT/var/lib/yubix \
+         $YUBIX_ROOT/etc/systemd/system
+# copy each service from whichever directory your distro really keeps it in
+for f in sudo polkit-1 kde plasmalogin sddm; do
+    cp "/etc/pam.d/$f"     "$YUBIX_ROOT/etc/pam.d/"     2>/dev/null
+    cp "/usr/lib/pam.d/$f" "$YUBIX_ROOT/usr/lib/pam.d/" 2>/dev/null
+done
+# the login surface follows the display-manager alias
+ln -s "$(readlink /etc/systemd/system/display-manager.service)" \
+      "$YUBIX_ROOT/etc/systemd/system/display-manager.service"
 dotnet run --project src/Yubix.Helper &   # helper on the session bus
 dotnet run --project src/Yubix.App        # the app, talking to it
 ```

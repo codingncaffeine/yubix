@@ -114,6 +114,10 @@ public sealed partial class HelperService
                 foreign = baseContent is null ? new List<string>() : PamGenerator.ForeignAuthLines(baseContent),
                 drift = Drift.Classify(_state.SurfaceRecords.GetValueOrDefault(id), current, vendorContent),
                 pacnewPresent = File.Exists(etcPath + ".pacnew"),
+                pacsavePresent = File.Exists(etcPath + ".pacsave"),
+                shortCircuited = baseContent is null
+                    ? new List<string>()
+                    : PamGenerator.ShortCircuitedHelpers(baseContent),
             };
         }
 
@@ -298,9 +302,16 @@ public sealed partial class HelperService
                 PamGenerator.Render(baseContent, SurfaceMode.Passwordless,
                     PamGenerator.BuildU2fLine(SurfaceMode.Passwordless, _state.Origin, _paths.MappingFile));
                 var foreign = PamGenerator.ForeignAuthLines(baseContent);
+                var skipped = PamGenerator.ShortCircuitedHelpers(baseContent);
+                var notes = new List<string>();
+                if (foreign.Count > 0)
+                    notes.Add($"existing auth lines present: {string.Join(" | ", foreign)}");
+                if (skipped.Count > 0)
+                    notes.Add($"touch-only mode returns before {string.Join(", ", skipped)} runs, "
+                        + "so the wallet/keyring will not auto-unlock");
                 Check($"surface-{id}", true,
-                    foreign.Count > 0
-                        ? $"'{service}' ready (note: existing auth lines present: {string.Join(" | ", foreign)})"
+                    notes.Count > 0
+                        ? $"'{service}' ready (note: {string.Join("; ", notes)})"
                         : $"'{service}' ready");
             }
             catch (UnsupportedLayoutException ex)

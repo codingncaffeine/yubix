@@ -21,7 +21,7 @@
               <TextBlock Classes="h1" Text="Yubix"/>
             </StackPanel>
             <TextBlock Classes="muted"
-                       Text="Security-key login and sudo for CachyOS — no terminal required"/>
+                       Text="Security-key login and sudo — no terminal required"/>
           </StackPanel>
           <Border Grid.Column="1" Classes="pill" VerticalAlignment="Center">
             <TextBlock x:Name="StatusPill" FontSize="12" Text="Connecting…"/>

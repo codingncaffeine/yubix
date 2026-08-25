@@ -139,6 +139,13 @@ public partial class MainWindow : Window
                 if (kv.Value?["drift"] is JsonArray drift)
                     foreach (var flag in drift)
                         Log($"⚠ {kv.Key}: {Drift.Describe(flag?.GetValue<string>() ?? "")}");
+                if (kv.Value?["mode"]?.GetValue<string>() == "passwordless" &&
+                    kv.Value?["shortCircuited"] is JsonArray skipped && skipped.Count > 0)
+                    Log($"\u2139 {kv.Key}: touch-only login returns before " +
+                        string.Join(", ", skipped.Select(s => s?.GetValue<string>())) +
+                        " runs — your wallet/keyring won't auto-unlock on this surface");
+                if (kv.Value?["pacsavePresent"]?.GetValue<bool>() == true)
+                    Log($"\u26a0 {kv.Key}: a .pacsave file is present — the package moved or dropped this PAM file; re-apply to rebuild from the new base");
                 if (kv.Value?["pacnewPresent"]?.GetValue<bool>() == true)
                     Log($"⚠ {kv.Key}: a .pacnew file is waiting in /etc/pam.d — merge it; an overwrite would drop the Yubix line");
             }
@@ -146,7 +153,7 @@ public partial class MainWindow : Window
         if (health?["polkitSandboxOk"]?.GetValue<bool>() == false)
             Log("⚠ polkit's auth helper lost the pam-u2f drop-in — admin-prompt key auth will fail (reinstall pam-u2f)");
         if (health?["loginServiceSupported"]?.GetValue<bool>() == false)
-            Log($"⚠ unsupported login screen ({health?["displayManagerService"]?.GetValue<string>()}) — Yubix manages plasmalogin and sddm; the login surface won't apply to this one");
+            Log($"⚠ unsupported login screen ({health?["displayManagerService"]?.GetValue<string>()}) — Yubix manages plasmalogin, sddm and lightdm; the login surface won't apply to this one");
         if (health?["lockscreenNativeU2f"]?.GetValue<bool>() == true)
             Log("ℹ this Plasma has native lock-screen key support (kde-u2f) — a future Yubix version will migrate to it");
         if (data["staleLoginServices"] is JsonArray stale)

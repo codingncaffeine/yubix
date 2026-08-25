@@ -37,8 +37,11 @@ public static class Surfaces
 
     /// <summary>Login-screen PAM services Yubix knows how to manage, in
     /// fallback-probe order. RestoreDefaults cleans all of them, so a display
-    /// manager switch can't strand a stale override.</summary>
-    public static readonly string[] KnownLoginServices = { "plasmalogin", "sddm" };
+    /// manager switch can't strand a stale override. Order matters: the probe
+    /// takes the first that exists on disk, and a box can carry a PAM file for
+    /// a display manager it no longer runs, so the more specific entries stay
+    /// ahead of the general-purpose ones.</summary>
+    public static readonly string[] KnownLoginServices = { "plasmalogin", "sddm", "lightdm" };
 
     /// <summary>Maps the display-manager systemd unit to its PAM service;
     /// null when Yubix doesn't support that display manager yet.</summary>
@@ -46,6 +49,9 @@ public static class Surfaces
     {
         "plasmalogin.service" => "plasmalogin",
         "sddm.service" => "sddm",
+        // EndeavourOS's Xfce4 flagship (and its i3/Budgie/Cinnamon/MATE
+        // editions) ship LightDM; its PAM file has the same shape as sddm's.
+        "lightdm.service" => "lightdm",
         _ => null,
     };
 
