@@ -1,5 +1,8 @@
-# Internal dev handoff — lists unfixed security findings; never publish.
+# Internal dev docs. Plans and handoffs record unfixed findings and internal
+# process — they are never committed and never published. Matched in any
+# directory, so a new one can't slip in from a subfolder either.
 HANDOFF.md
+PLAN.md
 
 bin/
 obj/

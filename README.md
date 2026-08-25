@@ -30,7 +30,7 @@ Setting up a security key for Linux login normally means hand-editing PAM files 
 | `Yubix.Core` | Shared PAM generator/transaction engine (fully unit-tested) |
 | `yubix-restore` | Dependency-free shell script that replays backup manifests |
 
-PAM strategy: vendor files in `/usr/lib/pam.d/` are shadowed with override files in `/etc/pam.d/` (revert = delete). Services a distro ships directly in `/etc/pam.d/` instead — `sudo` everywhere, and the login service on distros using SDDM — get a single marker-tagged line inserted in place (revert = strip the line; the same idiom CachyOS's `chwd` uses). `system-auth` is never touched. Full details in [docs/PLAN.md](docs/PLAN.md).
+PAM strategy: vendor files in `/usr/lib/pam.d/` are shadowed with override files in `/etc/pam.d/` (revert = delete). Services a distro ships directly in `/etc/pam.d/` instead — `sudo` everywhere, and the login service on distros using SDDM — get a single marker-tagged line inserted in place (revert = strip the line; the same idiom CachyOS's `chwd` uses). `system-auth` is never touched. Full details in the [Architecture](https://github.com/codingncaffeine/yubix/wiki/Architecture) and [Distro Support](https://github.com/codingncaffeine/yubix/wiki/Distro-Support) pages of the wiki.
 
 ## Demo vs. the real thing
 
